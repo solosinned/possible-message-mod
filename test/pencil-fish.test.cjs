@@ -1,0 +1,128 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { parseMessage, createReply, replyToMessages, waitForSelectedChat } = require('../bot.js');
+
+test('parses a line-start s.fish command and its sender', () => {
+    assert.deepEqual(parseMessage('Svnny\ns.fish\n28/09 2:41'), {
+        username: 'Svnny',
+        command: 'fish',
+        args: ''
+    });
+});
+
+test('parses commands that start with a number', () => {
+    assert.deepEqual(parseMessage('Svnny\ns.8ball Will I win?'), {
+        username: 'Svnny',
+        command: '8ball',
+        args: 'Will I win?'
+    });
+});
+
+test('accepts a visible chat composer when the app page flag is home', async () => {
+    const page = {
+        viewportSize: () => ({ width: 1000, height: 800 }),
+        locator: () => ({
+            count: async () => 1,
+            nth: () => ({
+                isVisible: async () => true,
+                evaluate: async () => ({ label: 'Type here', rect: { y: 750, width: 400 } })
+            })
+        }),
+        evaluate: async () => ({ page: 'home', room: 1, href: 'https://pencilpractice.website/' })
+    };
+
+    const state = await waitForSelectedChat(page);
+
+    assert.equal(state.page, 'home');
+    assert.equal(state.room, 1);
+    assert.ok(state.composer);
+});
+
+test('uses the displayed username instead of a numeric account id', () => {
+    assert.deepEqual(parseMessage('Svnny\n2089932\ns.fish'), {
+        username: 'Svnny',
+        command: 'fish',
+        args: ''
+    });
+});
+
+test('removes a numeric account id appended to the displayed username', () => {
+    assert.deepEqual(parseMessage('solo2089935\ns.fish'), {
+        username: 'solo',
+        command: 'fish',
+        args: ''
+    });
+});
+
+test('keeps usernames that start with numbers', () => {
+    assert.deepEqual(parseMessage('7solo\ns.fish'), {
+        username: '7solo',
+        command: 'fish',
+        args: ''
+    });
+});
+
+test('normalizes decorative Unicode usernames before creating a ping', () => {
+    assert.deepEqual(parseMessage('𝓼𝓸𝓵𝓸\ns.fish'), {
+        username: 'solo',
+        command: 'fish',
+        args: ''
+    });
+});
+
+test('ignores ordinary text and commands not at the start of a line', () => {
+    assert.equal(parseMessage('Svnny\ntry s.fish sometime'), null);
+    assert.equal(parseMessage('Svnny\nhello there'), null);
+});
+
+test('rejects messages without a sender and mention-everyone names', () => {
+    assert.equal(parseMessage('s.fish'), null);
+    assert.equal(parseMessage('@everyone\ns.fish'), null);
+});
+
+test('creates playful replies for supported commands', () => {
+    assert.equal(createReply({ username: 'Svnny', command: 'unknown' }), null);
+    assert.equal(createReply({ username: 'Svnny', command: 'fish' }, () => 0), 'Svnny caught a Goldfish!');
+    assert.equal(createReply({ username: 'Svnny', command: 'bark' }), 'Svnny barks: woof woof!');
+    assert.equal(createReply({ username: 'Svnny', command: 'ping' }), 'Pong! Svnny got pinged!');
+    assert.equal(createReply({ username: 'Svnny', command: 'coin' }, () => 0), 'Svnny flipped a coin: heads!');
+    assert.equal(createReply({ username: 'Svnny', command: 'dice' }, () => 0.5), 'Svnny rolled a 4!');
+    assert.equal(createReply({ username: 'Svnny', command: 'rps' }, () => 0), 'Svnny chose rock!');
+    assert.equal(createReply({ username: 'Svnny', command: '8ball' }, () => 0.8), 'Svnny asks the magic 8-ball: Not today!');
+    assert.equal(createReply({ username: 'Svnny', command: 'dance' }), 'Svnny does a happy dance!');
+    assert.equal(createReply({ username: 'Svnny', command: 'joke' }, () => 0), 'Svnny, Why did the pencil go to school? To get a little sharper!');
+    assert.equal(createReply({ username: 'Svnny', command: 'hug' }), 'Svnny gets a big virtual hug!');
+    assert.equal(createReply({ username: 'Svnny', command: 'compliment' }, () => 0), 'Svnny, you make this chat brighter!');
+    assert.equal(createReply({ username: 'Svnny', command: 'roll' }, () => 0), 'Svnny rolled a 1 on a d20!');
+    assert.equal(createReply({ username: 'Svnny', command: 'highfive' }), 'Svnny gets a high five!');
+    assert.equal(createReply({ username: 'Svnny', command: 'boop' }), 'Boop! Svnny has been booped!');
+    assert.equal(createReply({ username: 'Svnny', command: 'cheer' }), "Let's go, Svnny! You've got this!");
+    assert.equal(createReply({ username: 'Svnny', command: 'vibe' }, () => 0), "Svnny's vibe is immaculate!");
+    assert.equal(createReply({ username: 'Svnny', command: 'riddle' }), 'Svnny: What has keys but cannot open locks? A piano!');
+    assert.equal(createReply({ username: 'Svnny', command: 'pun' }, () => 0), 'Svnny, I used to be a banker, but I lost interest.');
+    assert.equal(createReply({ username: 'Svnny', command: 'pick', args: 'pizza, tacos' }, () => 0.9), 'Svnny, I pick tacos!');
+    assert.equal(createReply({ username: 'Svnny', command: 'pick' }), 'Svnny, give me options: s.pick pizza, tacos');
+    assert.equal(createReply({ username: 'Svnny', command: 'rate', args: 'my drawing' }, () => 0), 'my drawing gets a 1/10 rating!');
+    assert.equal(createReply({ username: 'Svnny', command: 'pet' }), 'Svnny gives the chat a gentle pat!');
+    assert.equal(createReply({ username: 'Svnny', command: 'sparkle' }), '✨ Svnny adds a little sparkle! ✨');
+    assert.equal(createReply({ username: 'Svnny', command: 'shrug' }), 'Svnny shrugs: who knows!');
+    assert.equal(createReply({ username: 'Svnny', command: 'fortune' }, () => 0), "Svnny's fortune: A pleasant surprise is heading your way.");
+    assert.equal(createReply({ username: 'Svnny', command: 'help' }), 'Commands: fish, balance, shop, bait, buy, equip, bark, ping, coin, dice, rps, 8ball, dance, joke, hug, compliment, roll, highfive, boop, cheer, vibe, riddle, pun, pick, rate, pet, sparkle, shrug, fortune, help');
+});
+
+test('replies to every supported command in a batch in order', async () => {
+    const sent = [];
+    await replyToMessages([
+        { username: 'Alice', command: 'ping' },
+        { username: 'Bot', command: 'ping' },
+        { username: 'Bob', command: 'hug' },
+        { username: 'Casey', command: 'unknown' },
+        { username: 'Dana', command: 'dance' }
+    ], 'Bot', async (message, reply) => sent.push([message.username, reply]));
+
+    assert.deepEqual(sent, [
+        ['Alice', 'Pong! Alice got pinged!'],
+        ['Bob', 'Bob gets a big virtual hug!'],
+        ['Dana', 'Dana does a happy dance!']
+    ]);
+});

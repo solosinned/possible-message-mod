@@ -1,0 +1,13 @@
+{
+  "name": "pencil-fish-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A local Playwright bot for s.fish commands in Pencil Practice chat",
+  "scripts": {
+    "start": "node bot.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}
