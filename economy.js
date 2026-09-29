@@ -43,7 +43,20 @@ const FISH_BY_RARITY = [
 ];
 
 const RARITIES = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Mythic'];
-const ECONOMY_COMMANDS = new Set(['fish', 'balance', 'wallet', 'shop', 'bait', 'buy', 'equip']);
+const WORK_JOBS = [
+    { name: 'delivery driver', min: 25, max: 55 },
+    { name: 'cashier', min: 20, max: 45 },
+    { name: 'dog walker', min: 22, max: 50 },
+    { name: 'tutor', min: 35, max: 70 },
+    { name: 'mechanic', min: 30, max: 65 },
+    { name: 'gardener', min: 20, max: 48 }
+];
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const HALF_HOUR_MS = 30 * 60 * 1000;
+const ECONOMY_COMMANDS = new Set([
+    'fish', 'balance', 'wallet', 'shop', 'bait', 'buy', 'equip', 'work', 'daily', 'beg'
+]);
 
 function weightedChoice(options, random) {
     const total = options.reduce((sum, option) => sum + option.weight, 0);
@@ -60,9 +73,10 @@ function normalizeBait(value) {
 }
 
 class FishingEconomy {
-    constructor(storePath = path.join(__dirname, '.sincoins.json'), random = Math.random) {
+    constructor(storePath = path.join(__dirname, '.sincoins.json'), random = Math.random, now = Date.now) {
         this.storePath = storePath;
         this.random = random;
+        this.now = now;
         this.players = Object.create(null);
         this.load();
     }
@@ -87,13 +101,18 @@ class FishingEconomy {
         }
         if (command === 'buy') return this.buyBait(username, player, message.args);
         if (command === 'equip') return this.equipBait(username, player, message.args);
+        if (command === 'work') return this.work(username, player);
+        if (command === 'daily') return this.daily(username, player);
+        if (command === 'beg') return this.beg(username, player);
         return null;
     }
 
     getPlayer(username) {
         const key = String(username).toLowerCase();
         if (!this.players[key]) {
-            this.players[key] = { sincoins: 0, ownedBaits: ['worm'], equippedBait: 'worm' };
+            this.players[key] = {
+                sincoins: 0, ownedBaits: ['worm'], equippedBait: 'worm', workAt: null, dailyAt: null, begAt: null
+            };
         }
         return this.players[key];
     }
@@ -108,7 +127,52 @@ class FishingEconomy {
         const fish = FISH_BY_RARITY[rarityIndex][Math.floor(this.random() * FISH_BY_RARITY[rarityIndex].length)];
         player.sincoins += fish.value;
         this.save();
-        return `${username} caught a ${RARITIES[rarityIndex]} ${fish.name} and earned ${fish.value} Sincoins! Balance: ${player.sincoins}.`;
+        return `${username} caught a ${RARITIES[rarityIndex]} ${fish.name} and earned ${fish.value} Sincoins. Balance: ${player.sincoins}`;
+    }
+
+    work(username, player) {
+        const cooldownMessage = this.claimCooldown(username, player, 'workAt', HOUR_MS, 'work');
+        if (cooldownMessage) return cooldownMessage;
+
+        const job = WORK_JOBS[Math.floor(this.random() * WORK_JOBS.length)];
+        const reward = Math.floor(this.random() * (job.max - job.min + 1)) + job.min;
+        player.sincoins += reward;
+        this.save();
+        return `${username} worked as a ${job.name} and earned ${reward} Sincoins. Balance: ${player.sincoins}`;
+    }
+
+    daily(username, player) {
+        const cooldownMessage = this.claimCooldown(username, player, 'dailyAt', DAY_MS, 'collect a daily reward');
+        if (cooldownMessage) return cooldownMessage;
+
+        const reward = Math.floor(this.random() * 101) + 100;
+        player.sincoins += reward;
+        this.save();
+        return `${username} collected ${reward} Sincoins. Balance: ${player.sincoins}`;
+    }
+
+    beg(username, player) {
+        const cooldownMessage = this.claimCooldown(username, player, 'begAt', HALF_HOUR_MS, 'beg');
+        if (cooldownMessage) return cooldownMessage;
+
+        const reward = Math.floor(this.random() * 16) + 5;
+        player.sincoins += reward;
+        this.save();
+        return `${username} asked around and received ${reward} Sincoins. Balance: ${player.sincoins}`;
+    }
+
+    claimCooldown(username, player, key, cooldownMs, action) {
+        const now = this.now();
+        const availableAt = player[key] + cooldownMs;
+        if (player[key] !== null && availableAt > now) {
+            const secondsLeft = Math.ceil((availableAt - now) / 1000);
+            const timeLeft = secondsLeft >= 60
+                ? `${Math.ceil(secondsLeft / 60)} minutes`
+                : `${secondsLeft} seconds`;
+            return `${username}, you can ${action} again in ${timeLeft}`;
+        }
+        player[key] = now;
+        return null;
     }
 
     buyBait(username, player, input) {
@@ -166,7 +230,15 @@ class FishingEconomy {
                 : [];
             if (!ownedBaits.includes('worm')) ownedBaits.unshift('worm');
             const equippedBait = ownedBaits.includes(player.equippedBait) ? player.equippedBait : 'worm';
-            this.players[username.toLowerCase()] = { sincoins: player.sincoins, ownedBaits, equippedBait };
+            const timestamp = key => Number.isSafeInteger(player[key]) && player[key] >= 0 ? player[key] : null;
+            this.players[username.toLowerCase()] = {
+                sincoins: player.sincoins,
+                ownedBaits,
+                equippedBait,
+                workAt: timestamp('workAt'),
+                dailyAt: timestamp('dailyAt'),
+                begAt: timestamp('begAt')
+            };
         }
     }
 

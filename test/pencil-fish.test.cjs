@@ -1,6 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseMessage, createReply, replyToMessages, waitForSelectedChat } = require('../bot.js');
+const {
+    parseMessage,
+    parseObservedMessage,
+    detectSelfHarmPromotion,
+    createReply,
+    createSpamMessage,
+    replyToMessages,
+    waitForSelectedChat,
+    normalizeUsername,
+    isBlacklistedUser,
+    handleBlacklistCommand
+} = require('../bot.js');
 
 test('parses a line-start s.fish command and its sender', () => {
     assert.deepEqual(parseMessage('Svnny\ns.fish\n28/09 2:41'), {
@@ -75,39 +86,100 @@ test('ignores ordinary text and commands not at the start of a line', () => {
     assert.equal(parseMessage('Svnny\nhello there'), null);
 });
 
+test('parses regular chat messages with their displayed sender', () => {
+    assert.deepEqual(parseObservedMessage('Alice\nYou should cut yourself\n28/09 2:41'), {
+        username: 'Alice',
+        command: null,
+        args: '',
+        content: 'You should cut yourself'
+    });
+});
+
+test('detects direct self-harm encouragement and common obfuscations', () => {
+    for (const text of [
+        'you should kill yourself',
+        'go cut yourself',
+        'hang urself',
+        'go jump off a bridge',
+        'kys',
+        'ky.s',
+        'k y s',
+        'k1ll y0urself'
+    ]) {
+        assert.ok(detectSelfHarmPromotion(text), `expected detection for: ${text}`);
+    }
+});
+
+test('does not moderate profanity or unrelated chat', () => {
+    assert.equal(detectSelfHarmPromotion('that was a damn good game'), null);
+    assert.equal(detectSelfHarmPromotion('I will see you tomorrow'), null);
+});
+
+test('admin can blacklist and unblacklist only from the admin account', () => {
+    const blacklist = new Set();
+
+    assert.deepEqual(handleBlacklistCommand({ username: 'solo', command: 'ping', args: '' }, blacklist, 'solo'), {
+        changed: false,
+        value: null
+    });
+    assert.equal(handleBlacklistCommand({ username: 'solo', command: 'blacklist', args: 'bob' }, blacklist, 'solo').changed, true);
+    assert.equal(isBlacklistedUser('Bob', blacklist), true);
+    assert.equal(handleBlacklistCommand({ username: 'alice', command: 'blacklist', args: 'charlie' }, blacklist, 'solo').changed, false);
+    assert.equal(handleBlacklistCommand({ username: 'solo', command: 'unblacklist', args: 'bob' }, blacklist, 'solo').changed, true);
+    assert.equal(isBlacklistedUser('bob', blacklist), false);
+    assert.equal(normalizeUsername('  @Solo_123 '), 'solo');
+});
+
 test('rejects messages without a sender and mention-everyone names', () => {
     assert.equal(parseMessage('s.fish'), null);
     assert.equal(parseMessage('@everyone\ns.fish'), null);
 });
 
-test('creates playful replies for supported commands', () => {
+test('creates plain replies for supported commands', () => {
     assert.equal(createReply({ username: 'Svnny', command: 'unknown' }), null);
-    assert.equal(createReply({ username: 'Svnny', command: 'fish' }, () => 0), 'Svnny caught a Goldfish!');
-    assert.equal(createReply({ username: 'Svnny', command: 'bark' }), 'Svnny barks: woof woof!');
-    assert.equal(createReply({ username: 'Svnny', command: 'ping' }), 'Pong! Svnny got pinged!');
-    assert.equal(createReply({ username: 'Svnny', command: 'coin' }, () => 0), 'Svnny flipped a coin: heads!');
-    assert.equal(createReply({ username: 'Svnny', command: 'dice' }, () => 0.5), 'Svnny rolled a 4!');
-    assert.equal(createReply({ username: 'Svnny', command: 'rps' }, () => 0), 'Svnny chose rock!');
-    assert.equal(createReply({ username: 'Svnny', command: '8ball' }, () => 0.8), 'Svnny asks the magic 8-ball: Not today!');
-    assert.equal(createReply({ username: 'Svnny', command: 'dance' }), 'Svnny does a happy dance!');
-    assert.equal(createReply({ username: 'Svnny', command: 'joke' }, () => 0), 'Svnny, Why did the pencil go to school? To get a little sharper!');
-    assert.equal(createReply({ username: 'Svnny', command: 'hug' }), 'Svnny gets a big virtual hug!');
-    assert.equal(createReply({ username: 'Svnny', command: 'compliment' }, () => 0), 'Svnny, you make this chat brighter!');
-    assert.equal(createReply({ username: 'Svnny', command: 'roll' }, () => 0), 'Svnny rolled a 1 on a d20!');
-    assert.equal(createReply({ username: 'Svnny', command: 'highfive' }), 'Svnny gets a high five!');
-    assert.equal(createReply({ username: 'Svnny', command: 'boop' }), 'Boop! Svnny has been booped!');
-    assert.equal(createReply({ username: 'Svnny', command: 'cheer' }), "Let's go, Svnny! You've got this!");
-    assert.equal(createReply({ username: 'Svnny', command: 'vibe' }, () => 0), "Svnny's vibe is immaculate!");
-    assert.equal(createReply({ username: 'Svnny', command: 'riddle' }), 'Svnny: What has keys but cannot open locks? A piano!');
+    assert.equal(createReply({ username: 'Svnny', command: 'fish' }, () => 0), 'Svnny caught a Goldfish');
+    assert.equal(createReply({ username: 'Svnny', command: 'bark' }), 'Svnny: woof woof');
+    assert.equal(createReply({ username: 'Svnny', command: 'ping' }), 'Svnny: pong');
+    assert.equal(createReply({ username: 'Svnny', command: 'coin' }, () => 0), 'Svnny flipped heads');
+    assert.equal(createReply({ username: 'Svnny', command: 'dice' }, () => 0.5), 'Svnny rolled a 4');
+    assert.equal(createReply({ username: 'Svnny', command: 'rps' }, () => 0), 'Svnny chose rock');
+    assert.equal(createReply({ username: 'Svnny', command: '8ball' }, () => 0.8), 'Svnny: No');
+    assert.equal(createReply({ username: 'Svnny', command: 'dance' }), 'Svnny danced');
+    assert.equal(createReply({ username: 'Svnny', command: 'joke' }, () => 0), 'Svnny: The pencil went to school to get a little sharper.');
+    assert.equal(createReply({ username: 'Svnny', command: 'hug' }), 'Svnny sent a hug');
+    assert.equal(createReply({ username: 'Svnny', command: 'compliment' }, () => 0), 'Svnny, you make this chat brighter');
+    assert.equal(createReply({ username: 'Svnny', command: 'roll' }, () => 0), 'Svnny rolled 1 on a d20');
+    assert.equal(createReply({ username: 'Svnny', command: 'highfive' }), 'Svnny got a high five');
+    assert.equal(createReply({ username: 'Svnny', command: 'boop' }), 'Svnny got booped');
+    assert.equal(createReply({ username: 'Svnny', command: 'cheer' }), 'Svnny, keep going');
+    assert.equal(createReply({ username: 'Svnny', command: 'vibe' }, () => 0), "Svnny's vibe is immaculate");
+    assert.equal(createReply({ username: 'Svnny', command: 'riddle' }), 'Svnny: A piano has keys but cannot open locks');
     assert.equal(createReply({ username: 'Svnny', command: 'pun' }, () => 0), 'Svnny, I used to be a banker, but I lost interest.');
-    assert.equal(createReply({ username: 'Svnny', command: 'pick', args: 'pizza, tacos' }, () => 0.9), 'Svnny, I pick tacos!');
-    assert.equal(createReply({ username: 'Svnny', command: 'pick' }), 'Svnny, give me options: s.pick pizza, tacos');
-    assert.equal(createReply({ username: 'Svnny', command: 'rate', args: 'my drawing' }, () => 0), 'my drawing gets a 1/10 rating!');
-    assert.equal(createReply({ username: 'Svnny', command: 'pet' }), 'Svnny gives the chat a gentle pat!');
-    assert.equal(createReply({ username: 'Svnny', command: 'sparkle' }), '✨ Svnny adds a little sparkle! ✨');
-    assert.equal(createReply({ username: 'Svnny', command: 'shrug' }), 'Svnny shrugs: who knows!');
+    assert.equal(createReply({ username: 'Svnny', command: 'pick', args: 'pizza, tacos' }, () => 0.9), 'Svnny picked tacos');
+    assert.equal(createReply({ username: 'Svnny', command: 'pick' }), 'Svnny, provide options with s.pick pizza, tacos');
+    assert.equal(createReply({ username: 'Svnny', command: 'rate', args: 'my drawing' }, () => 0), 'my drawing gets a 1/10');
+    assert.equal(createReply({ username: 'Svnny', command: 'pet' }), 'Svnny patted the chat');
+    assert.equal(createReply({ username: 'Svnny', command: 'sparkle' }), 'Svnny added a little sparkle');
+    assert.equal(createReply({ username: 'Svnny', command: 'shrug' }), 'Svnny shrugs');
     assert.equal(createReply({ username: 'Svnny', command: 'fortune' }, () => 0), "Svnny's fortune: A pleasant surprise is heading your way.");
-    assert.equal(createReply({ username: 'Svnny', command: 'help' }), 'Commands: fish, balance, shop, bait, buy, equip, bark, ping, coin, dice, rps, 8ball, dance, joke, hug, compliment, roll, highfive, boop, cheer, vibe, riddle, pun, pick, rate, pet, sparkle, shrug, fortune, help');
+    assert.equal(createReply({ username: 'Svnny', command: 'help' }), 'Commands: fish, balance, wallet, shop, bait, buy, equip, work, daily, beg, bark, ping, coin, dice, rps, 8ball, dance, joke, hug, compliment, roll, highfive, boop, cheer, vibe, riddle, pun, pick, rate, pet, sparkle, shrug, fortune, switch, spam, stopspam, help');
+});
+
+test('command replies contain no emoji, exclamation marks, or question marks', () => {
+    const commands = [
+        'fish', 'bark', 'ping', 'coin', 'dice', 'rps', '8ball', 'dance', 'joke', 'hug',
+        'compliment', 'roll', 'highfive', 'boop', 'cheer', 'vibe', 'riddle', 'pun', 'pick',
+        'rate', 'pet', 'sparkle', 'shrug', 'fortune', 'help'
+    ];
+    for (const command of commands) {
+        const reply = createReply({ username: 'Svnny', command, args: 'pizza, tacos' }, () => 0);
+        assert.doesNotMatch(reply, /[!?\p{Extended_Pictographic}]/u, command);
+    }
+});
+
+test('creates three random uppercase letters for spam messages', () => {
+    const rolls = [0, 25 / 26, 12 / 26];
+    assert.equal(createSpamMessage(() => rolls.shift()), 'AZM');
 });
 
 test('replies to every supported command in a batch in order', async () => {
@@ -121,8 +193,8 @@ test('replies to every supported command in a batch in order', async () => {
     ], 'Bot', async (message, reply) => sent.push([message.username, reply]));
 
     assert.deepEqual(sent, [
-        ['Alice', 'Pong! Alice got pinged!'],
-        ['Bob', 'Bob gets a big virtual hug!'],
-        ['Dana', 'Dana does a happy dance!']
+        ['Alice', 'Alice: pong'],
+        ['Bob', 'Bob sent a hug'],
+        ['Dana', 'Dana danced']
     ]);
 });
