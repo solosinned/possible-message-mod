@@ -5,10 +5,40 @@ const SITE_URL = 'https://pencilpractice.website/';
 const ADMIN_USERNAME = process.env.BOT_ADMIN_USERNAME || 'solo';
 const REPLY_INTERVAL_MS = 250;
 const SPAM_INTERVAL_MS = 500;
+const CONVERSATION_STARTER_MIN_INTERVAL_MS = 20 * 60 * 1000;
+const CONVERSATION_STARTER_MAX_INTERVAL_MS = 40 * 60 * 1000;
+const CONVERSATION_STARTER_QUIET_MS = 3 * 60 * 1000;
 const MAX_MESSAGE_LENGTH = 260;
 const FISH = ['Goldfish', 'Bluefin tuna', 'Clownfish', 'Pufferfish', 'Salmon', 'Swordfish'];
 const RPS_CHOICES = ['rock', 'paper', 'scissors'];
 const EIGHT_BALL_ANSWERS = ['Yes', 'Looks likely', 'Maybe', 'Ask again later', 'No'];
+const CONVERSATION_STARTERS = [
+    'Pineapple on pizza: genuinely good or no?',
+    "What's a tiny thing that can turn a bad day around?",
+    'Are you a show-up-early person or an arrive-at-the-last-second person?',
+    "What's one song you never skip?",
+    'Best movie snack? I need ideas.',
+    'Breakfast food at dinner: yes or no?',
+    'Do group projects ever work, or does one person always end up doing everything?',
+    "What's something ordinary you're weirdly good at?",
+    'Would you rather have a four-day week or a longer weekend every day?',
+    'What game can you play for hours without noticing the time?',
+    'Comfort-show rewatch or something new?',
+    'Would you rather always be a little early or a little late?',
+    'What small purchase turned out to be way more useful than you expected?',
+    'Movie night at home or at the theater?',
+    "What's a popular food you just don't understand?",
+    'A few really close friends or a huge group to hang out with?',
+    'Are voice notes convenient or just long audio homework?',
+    'Do you make your bed every morning, or is that just not happening?',
+    'If you could instantly get good at one hobby, what would you pick?',
+    "What's your ideal rainy-day plan?",
+    'Is it better to plan everything or figure it out as you go?',
+    "What fictional world would you actually want to visit for a day?",
+    "What's the snack that disappears fastest in your house?",
+    'Would you rather be amazing at cooking or fixing things?',
+    "What's the best thing to put on a pizza?"
+];
 const JOKES = ['The pencil went to school to get a little sharper.', 'A fish’s favorite instrument is the bass.', 'The computer got cold because it left its Windows open.'];
 const COMPLIMENTS = ['you make this chat brighter', 'you have good instincts', 'you are doing well'];
 const VIBES = ['immaculate', 'sparkly', 'legendary', 'chill', 'unstoppable'];
@@ -225,6 +255,15 @@ function createReply(message, random = Math.random) {
 
 function createSpamMessage(random = Math.random) {
     return Array.from({ length: 3 }, () => String.fromCharCode(65 + Math.floor(random() * 26))).join('');
+}
+
+function createConversationStarter(random = Math.random) {
+    return CONVERSATION_STARTERS[Math.floor(random() * CONVERSATION_STARTERS.length)];
+}
+
+function getConversationStarterInterval(random = Math.random) {
+    const range = CONVERSATION_STARTER_MAX_INTERVAL_MS - CONVERSATION_STARTER_MIN_INTERVAL_MS;
+    return CONVERSATION_STARTER_MIN_INTERVAL_MS + Math.floor(random() * range);
 }
 
 async function replyToMessages(messages, username, send, economy = null) {
@@ -736,6 +775,8 @@ async function runBot(page, username, roomState, economy) {
     let navigatingToMathRoom = false;
     let hasSwitchedToMathRoom = false;
     let nextSpamAt = 0;
+    let lastChatActivityAt = Date.now();
+    let nextConversationStarterAt = lastChatActivityAt + getConversationStarterInterval();
     console.log('Listening in the main room. Use s.switch to enter MATHS CLASS, then s.spam to start; s.stopspam stops it.');
 
     while (true) {
@@ -753,6 +794,9 @@ async function runBot(page, username, roomState, economy) {
             const watcher = window.__pencilFishWatcher;
             return watcher ? watcher.pending.splice(0) : [];
         }, username);
+        if (messages.some(message => message.username.toLowerCase() !== username.toLowerCase())) {
+            lastChatActivityAt = Date.now();
+        }
 
         const regularMessages = [];
         for (const message of messages) {
@@ -837,6 +881,17 @@ async function runBot(page, username, roomState, economy) {
             }
         }
 
+        const now = Date.now();
+        if (!spamActive && !navigatingToMathRoom && now >= nextConversationStarterAt
+            && now - lastChatActivityAt >= CONVERSATION_STARTER_QUIET_MS) {
+            const question = createConversationStarter();
+            await sendReply(page, activeRoom.composer, question);
+            console.log(`Started a conversation with: ${question}`);
+            lastChatActivityAt = Date.now();
+            nextConversationStarterAt = lastChatActivityAt + getConversationStarterInterval();
+            await page.waitForTimeout(REPLY_INTERVAL_MS);
+        }
+
         await page.waitForTimeout(100);
     }
 }
@@ -906,6 +961,8 @@ module.exports = {
     handleBlacklistCommand,
     createReply,
     createSpamMessage,
+    createConversationStarter,
+    getConversationStarterInterval,
     replyToMessages,
     runWithReconnect,
     waitForSelectedChat,

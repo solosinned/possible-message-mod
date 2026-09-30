@@ -2,6 +2,8 @@
 
 A standalone Node.js bot that signs in through the normal Pencil Practice page and responds to supported `s.` commands in the chat room you select. It uses headless Chromium, does not call private endpoints, and keeps the password only in memory while logging in.
 
+When chat has been quiet for a few minutes, the bot occasionally posts a casual conversation question. Questions are spaced 20-40 minutes apart, and prompts pause while spam mode is active.
+
 ## Setup
 
 1. Change any password that has been shared in chat, then install Node.js 20 or later.

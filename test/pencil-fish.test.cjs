@@ -6,6 +6,8 @@ const {
     detectSelfHarmPromotion,
     createReply,
     createSpamMessage,
+    createConversationStarter,
+    getConversationStarterInterval,
     replyToMessages,
     runWithReconnect,
     waitForSelectedChat,
@@ -14,6 +16,19 @@ const {
     isBlacklistedUser,
     handleBlacklistCommand
 } = require('../bot.js');
+
+test('chooses varied conversation starters and schedules them 20 to 40 minutes apart', () => {
+    assert.equal(createConversationStarter(() => 0), 'Pineapple on pizza: genuinely good or no?');
+    const anotherStarter = createConversationStarter(() => 0.9);
+    assert.ok(anotherStarter.endsWith('?'));
+    assert.notEqual(anotherStarter, createConversationStarter(() => 0));
+
+    assert.equal(getConversationStarterInterval(() => 0), 20 * 60 * 1000);
+    assert.equal(getConversationStarterInterval(() => 0.5), 30 * 60 * 1000);
+    const longestInterval = getConversationStarterInterval(() => 0.999999);
+    assert.ok(longestInterval < 40 * 60 * 1000);
+    assert.ok(longestInterval >= 20 * 60 * 1000);
+});
 
 test('retries a disconnected bot session with an increasing delay', async () => {
     let sessionCalls = 0;
