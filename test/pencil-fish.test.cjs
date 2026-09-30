@@ -7,11 +7,57 @@ const {
     createReply,
     createSpamMessage,
     replyToMessages,
+    runWithReconnect,
     waitForSelectedChat,
+    evaluateWithNavigationRetry,
     normalizeUsername,
     isBlacklistedUser,
     handleBlacklistCommand
 } = require('../bot.js');
+
+test('retries a disconnected bot session with an increasing delay', async () => {
+    let sessionCalls = 0;
+    const delays = [];
+    const stop = new Error('stop retry loop');
+    const originalLog = console.log;
+    const originalError = console.error;
+    console.log = () => {};
+    console.error = () => {};
+
+    try {
+        await assert.rejects(runWithReconnect(async () => {
+            sessionCalls += 1;
+            if (sessionCalls === 1) throw new Error('network lost');
+        }, async delay => {
+            delays.push(delay);
+            if (delays.length === 2) throw stop;
+        }), error => error === stop);
+    } finally {
+        console.log = originalLog;
+        console.error = originalError;
+    }
+
+    assert.equal(sessionCalls, 2);
+    assert.deepEqual(delays, [1000, 2000]);
+});
+
+test('retries a page evaluation after navigation destroys its context', async () => {
+    let evaluateCalls = 0;
+    const page = {
+        evaluate: async () => {
+            evaluateCalls += 1;
+            if (evaluateCalls === 1) {
+                throw new Error('Execution context was destroyed, most likely because of a navigation');
+            }
+            return evaluateCalls === 2 ? undefined : 'ready';
+        },
+        waitForLoadState: async () => {},
+        waitForTimeout: async () => {}
+    };
+
+    assert.equal(await evaluateWithNavigationRetry(page, () => 'ready', 'solo'), 'ready');
+    assert.equal(evaluateCalls, 3);
+});
 
 test('parses a line-start s.fish command and its sender', () => {
     assert.deepEqual(parseMessage('Svnny\ns.fish\n28/09 2:41'), {

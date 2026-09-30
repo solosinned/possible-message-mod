@@ -414,6 +414,25 @@ async function installWatcher(page, ownUsername) {
     }, { maxLength: MAX_MESSAGE_LENGTH, ownUsername });
 }
 
+async function evaluateWithNavigationRetry(page, evaluate, ownUsername) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            return await page.evaluate(evaluate);
+        } catch (error) {
+            if (!/Execution context was destroyed/.test(error.message) || attempt === 4) throw error;
+
+            console.warn('Page navigation interrupted chat polling; retrying.');
+            await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+            await page.waitForTimeout(100);
+            try {
+                await installWatcher(page, ownUsername);
+            } catch (watcherError) {
+                if (!/Execution context was destroyed/.test(watcherError.message)) throw watcherError;
+            }
+        }
+    }
+}
+
 async function findComposer(page) {
     const candidates = page.locator('textarea, input:not([type="hidden"]), [contenteditable="true"]');
     const viewport = page.viewportSize();
@@ -720,20 +739,20 @@ async function runBot(page, username, roomState, economy) {
     console.log('Listening in the main room. Use s.switch to enter MATHS CLASS, then s.spam to start; s.stopspam stops it.');
 
     while (true) {
-        const current = await page.evaluate(() => ({
+        const current = await evaluateWithNavigationRetry(page, () => ({
             page: window.curPage,
             room: window.pageRoom,
             href: window.location.href
-        }));
+        }), username);
         if (!navigatingToMathRoom && (current.room !== activeRoom.room || current.href !== activeRoom.href
             || !(await activeRoom.composer.isVisible().catch(() => false)))) {
             throw new Error('Chat or room changed. Bot stopped; restart it in the intended room.');
         }
 
-        const messages = await page.evaluate(() => {
+        const messages = await evaluateWithNavigationRetry(page, () => {
             const watcher = window.__pencilFishWatcher;
             return watcher ? watcher.pending.splice(0) : [];
-        });
+        }, username);
 
         const regularMessages = [];
         for (const message of messages) {
@@ -773,16 +792,16 @@ async function runBot(page, username, roomState, economy) {
                 if (!hasSwitchedToMathRoom && !navigatingToMathRoom
                     && current.room === roomState.room && activeRoom.room === roomState.room) {
                     navigatingToMathRoom = true;
-                    void navigateToMathsClass(page, roomState).then(room => {
-                        activeRoom = room;
+                    console.log('Navigating to MATHS CLASS.');
+                    try {
+                        activeRoom = await navigateToMathsClass(page, roomState);
                         hasSwitchedToMathRoom = true;
                         console.log('Switched to MATHS CLASS. Use s.spam to start.');
-                    }).catch(error => {
+                    } catch (error) {
                         console.error(`Could not switch to MATHS CLASS: ${error.message}`);
-                    }).finally(() => {
+                    } finally {
                         navigatingToMathRoom = false;
-                    });
-                    console.log('Navigating to MATHS CLASS.');
+                    }
                 }
                 continue;
             }
@@ -822,32 +841,53 @@ async function runBot(page, username, roomState, economy) {
     }
 }
 
+async function runWithReconnect(runSession, wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))) {
+    let attempt = 0;
+    while (true) {
+        try {
+            await runSession();
+        } catch (error) {
+            console.error(`Bot disconnected: ${error.message}`);
+        }
+
+        const delay = Math.min(1000 * (2 ** attempt), 60000);
+        console.log(`Retrying login in ${Math.ceil(delay / 1000)} seconds.`);
+        await wait(delay);
+        attempt = Math.min(attempt + 1, 6);
+    }
+}
+
 async function main() {
     const { chromium } = require('playwright');
     if (!process.stdin.isTTY && (!process.env.PENCIL_USERNAME || !process.env.PENCIL_PASSWORD)) {
         throw new Error('Set both PENCIL_USERNAME and PENCIL_PASSWORD in the service variables before starting the bot.');
     }
     const username = process.env.PENCIL_USERNAME || await promptLine('Pencil Practice username: ');
-    let password = process.env.PENCIL_PASSWORD || await promptHidden('Pencil Practice password (hidden): ');
+    const password = process.env.PENCIL_PASSWORD || await promptHidden('Pencil Practice password (hidden): ');
     if (!username || !password) throw new Error('Username and password are required.');
 
-    const browser = await chromium.launch({ headless: true });
-    try {
-        const page = await browser.newPage();
-        await login(page, username, password);
-        password = '';
-        const roomState = await waitForSelectedChat(page);
+    let sentStartupMessage = false;
+    await runWithReconnect(async () => {
+        let browser;
         try {
-            await testAdminPrivateMessage(page, ADMIN_USERNAME, 'Bot test: direct message check from the bot startup.');
-            console.log(`Sent the startup DM test to ${ADMIN_USERNAME} and closed the conversation.`);
-        } catch (error) {
-            console.error(`Could not send the startup DM test to ${ADMIN_USERNAME}: ${error.message}`);
+            browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            await login(page, username, password);
+            const roomState = await waitForSelectedChat(page);
+            if (!sentStartupMessage) {
+                try {
+                    await testAdminPrivateMessage(page, ADMIN_USERNAME, 'Bot test: direct message check from the bot startup.');
+                    console.log(`Sent the startup DM test to ${ADMIN_USERNAME} and closed the conversation.`);
+                } catch (error) {
+                    console.error(`Could not send the startup DM test to ${ADMIN_USERNAME}: ${error.message}`);
+                }
+                sentStartupMessage = true;
+            }
+            await runBot(page, username, roomState, new FishingEconomy());
+        } finally {
+            if (browser) await browser.close().catch(() => {});
         }
-        await runBot(page, username, roomState, new FishingEconomy());
-    } finally {
-        password = '';
-        await browser.close();
-    }
+    });
 }
 
 if (require.main === module) {
@@ -867,5 +907,7 @@ module.exports = {
     createReply,
     createSpamMessage,
     replyToMessages,
-    waitForSelectedChat
+    runWithReconnect,
+    waitForSelectedChat,
+    evaluateWithNavigationRetry
 };
