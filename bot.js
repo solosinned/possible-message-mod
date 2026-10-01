@@ -45,6 +45,7 @@ const VIBES = ['immaculate', 'sparkly', 'legendary', 'chill', 'unstoppable'];
 const PUNS = ['I used to be a banker, but I lost interest.', 'The baseball kept getting bigger. Then it hit me.', 'I am reading a book about anti-gravity. It is impossible to put down.'];
 const FORTUNES = ['A pleasant surprise is heading your way.', 'Today is a great day to try something new.', 'Your next idea will be a brilliant one.'];
 const COMMAND_PATTERN = /^s\.([a-z0-9][a-z0-9_-]*)(?:\s+(.*))?$/i;
+const ROOM_SWITCH_PATTERN = /^switchyroo$/i;
 
 function isNoiseLine(line) {
     return /^\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?$/.test(line)
@@ -105,10 +106,11 @@ function handleBlacklistCommand(message, blacklist = new Set(), adminUsername = 
 
 function parseMessage(text) {
     const lines = String(text).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-    const commandIndex = lines.findIndex(line => COMMAND_PATTERN.test(line));
+    const commandIndex = lines.findIndex(line => COMMAND_PATTERN.test(line) || ROOM_SWITCH_PATTERN.test(line));
     if (commandIndex < 0) return null;
 
     const match = COMMAND_PATTERN.exec(lines[commandIndex]);
+    const command = match ? match[1].toLowerCase() : 'switchyroo';
     const username = lines.slice(0, commandIndex)
         .reverse()
         .filter(line => !isNoiseLine(line))
@@ -116,7 +118,7 @@ function parseMessage(text) {
         .find(Boolean) || '';
     if (!username) return null;
 
-    return { username, command: match[1].toLowerCase(), args: (match[2] || '').trim() };
+    return { username, command, args: (match?.[2] || '').trim() };
 }
 
 function parseObservedMessage(text) {
@@ -248,7 +250,7 @@ function createReply(message, random = Math.random) {
         return `${message.username}'s fortune: ${fortune}`;
     }
     if (command === 'help') {
-        return `Commands: fish, balance, wallet, shop, bait, buy, equip, work, daily, beg, bark, ping, coin, dice, rps, 8ball, dance, joke, hug, compliment, roll, highfive, boop, cheer, vibe, riddle, pun, pick, rate, pet, sparkle, shrug, fortune, switch, spam, stopspam, help`;
+        return `Commands: fish, balance, wallet, shop, bait, buy, equip, work, daily, beg, bark, ping, coin, dice, rps, 8ball, dance, joke, hug, compliment, roll, highfive, boop, cheer, vibe, riddle, pun, pick, rate, pet, sparkle, shrug, fortune, switchyroo, spam, stopspam, help`;
     }
     return null;
 }
@@ -777,7 +779,7 @@ async function runBot(page, username, roomState, economy) {
     let nextSpamAt = 0;
     let lastChatActivityAt = Date.now();
     let nextConversationStarterAt = lastChatActivityAt + getConversationStarterInterval();
-    console.log('Listening in the main room. Use s.switch to enter MATHS CLASS, then s.spam to start; s.stopspam stops it.');
+    console.log('Listening in the main room. Type switchyroo to enter MATHS CLASS, then s.spam to start; s.stopspam stops it.');
 
     while (true) {
         const current = await evaluateWithNavigationRetry(page, () => ({
@@ -832,7 +834,7 @@ async function runBot(page, username, roomState, economy) {
                 spamComposer = null;
                 continue;
             }
-            if (message.command === 'switch') {
+            if (message.command === 'switchyroo') {
                 if (!hasSwitchedToMathRoom && !navigatingToMathRoom
                     && current.room === roomState.room && activeRoom.room === roomState.room) {
                     navigatingToMathRoom = true;

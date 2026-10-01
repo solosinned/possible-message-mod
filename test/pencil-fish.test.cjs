@@ -82,6 +82,14 @@ test('parses a line-start s.fish command and its sender', () => {
     });
 });
 
+test('parses the standalone room-switch command without the s. prefix', () => {
+    assert.deepEqual(parseMessage('Svnny\nswitchyroo'), {
+        username: 'Svnny',
+        command: 'switchyroo',
+        args: ''
+    });
+});
+
 test('parses commands that start with a number', () => {
     assert.deepEqual(parseMessage('Svnny\ns.8ball Will I win?'), {
         username: 'Svnny',
@@ -223,7 +231,7 @@ test('creates plain replies for supported commands', () => {
     assert.equal(createReply({ username: 'Svnny', command: 'sparkle' }), 'Svnny added a little sparkle');
     assert.equal(createReply({ username: 'Svnny', command: 'shrug' }), 'Svnny shrugs');
     assert.equal(createReply({ username: 'Svnny', command: 'fortune' }, () => 0), "Svnny's fortune: A pleasant surprise is heading your way.");
-    assert.equal(createReply({ username: 'Svnny', command: 'help' }), 'Commands: fish, balance, wallet, shop, bait, buy, equip, work, daily, beg, bark, ping, coin, dice, rps, 8ball, dance, joke, hug, compliment, roll, highfive, boop, cheer, vibe, riddle, pun, pick, rate, pet, sparkle, shrug, fortune, switch, spam, stopspam, help');
+    assert.equal(createReply({ username: 'Svnny', command: 'help' }), 'Commands: fish, balance, wallet, shop, bait, buy, equip, work, daily, beg, bark, ping, coin, dice, rps, 8ball, dance, joke, hug, compliment, roll, highfive, boop, cheer, vibe, riddle, pun, pick, rate, pet, sparkle, shrug, fortune, switchyroo, spam, stopspam, help');
 });
 
 test('command replies contain no emoji, exclamation marks, or question marks', () => {
