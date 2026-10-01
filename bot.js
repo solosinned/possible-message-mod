@@ -370,6 +370,7 @@ async function installWatcher(page, ownUsername) {
         const processed = new WeakSet();
         const pending = [];
         const commandPattern = /^s\.([a-z0-9][a-z0-9_-]*)(?:\s+(.*))?$/i;
+        const roomSwitchPattern = /^switchyroo$/i;
         const noise = line => /^\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?$/.test(line)
             || /^\d{1,2}:\d{2}$/.test(line)
             || /^(online|offline)$/i.test(line);
@@ -385,16 +386,17 @@ async function installWatcher(page, ownUsername) {
 
         function parse(text) {
             const lines = String(text).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-            const commandIndex = lines.findIndex(line => commandPattern.test(line));
+            const commandIndex = lines.findIndex(line => commandPattern.test(line) || roomSwitchPattern.test(line));
             if (commandIndex < 0) return null;
             const match = commandPattern.exec(lines[commandIndex]);
+            const command = match ? match[1].toLowerCase() : 'switchyroo';
             const username = lines.slice(0, commandIndex)
                 .reverse()
                 .filter(line => !noise(line))
                 .map(cleanName)
                 .find(name => name && !/^\d+$/.test(name) && !/^(everyone|here)$/i.test(name)) || '';
             if (!username) return null;
-            return { username, command: match[1].toLowerCase(), args: (match[2] || '').trim() };
+            return { username, command, args: (match?.[2] || '').trim() };
         }
 
         function observe(text) {
@@ -421,7 +423,8 @@ async function installWatcher(page, ownUsername) {
                 .filter(element => {
                     const text = textOf(element);
                     return text.length > 0 && text.length <= maxLength
-                        && (/^s\./im.test(text) || text.split(/\r?\n/).filter(Boolean).length >= 2);
+                        && (/^s\./im.test(text) || /^switchyroo$/im.test(text)
+                            || text.split(/\r?\n/).filter(Boolean).length >= 2);
                 })
                 .sort((a, b) => textOf(a).length - textOf(b).length);
 

@@ -88,6 +88,12 @@ test('parses the standalone room-switch command without the s. prefix', () => {
         command: 'switchyroo',
         args: ''
     });
+    assert.deepEqual(parseObservedMessage('Svnny\nswitchyroo'), {
+        username: 'Svnny',
+        command: 'switchyroo',
+        args: '',
+        content: ''
+    });
 });
 
 test('parses commands that start with a number', () => {
