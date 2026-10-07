@@ -1,8 +1,8 @@
 {
-  "name": "pencil-fish-bot",
+  "name": "pencil-practice-moderation-bot",
   "version": "1.0.0",
   "private": true,
-  "description": "A local Playwright bot for s.fish commands in Pencil Practice chat",
+  "description": "A Playwright moderation-alert bot for Pencil Practice chat",
   "scripts": {
     "start": "node bot.js",
     "test": "node --test"
