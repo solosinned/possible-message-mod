@@ -57,6 +57,13 @@ function detectSelfHarmPromotion(text) {
     return null;
 }
 
+function isLikelyComposerMetadata(metadata) {
+    if (!metadata) return false;
+    const looksLikeComposer = /(type here|message|send|chat|dm|pm|reply|write|new message)/i.test(metadata);
+    const looksLikeRoom = /room|main|global|general|channel|lobby/i.test(metadata);
+    return looksLikeComposer && !looksLikeRoom;
+}
+
 async function moderateMessage(text, apiKey = process.env.OPENAI_API_KEY, fetchImpl = globalThis.fetch) {
     if (!apiKey) throw new Error('Set OPENAI_API_KEY to enable AI moderation.');
     if (typeof fetchImpl !== 'function') throw new Error('This Node.js version does not provide fetch.');
@@ -444,8 +451,7 @@ async function openPrivateConversation(page, adminUsername) {
                 (element.innerText || '').trim(),
                 (element.value || '').trim()
             ].filter(Boolean).join(' '));
-            const looksLikeDmComposer = /message|send|chat|dm|pm|reply|write/i.test(metadata) && !/room|main|global|general/i.test(metadata);
-            if (looksLikeDmComposer) {
+            if (isLikelyComposerMetadata(metadata)) {
                 privateComposer = candidate;
                 break;
             }
@@ -471,7 +477,7 @@ async function sendPrivateMessage(page, adminUsername, text) {
 }
 
 async function sendStartupMessage(page, adminUsername) {
-    await sendPrivateMessage(page, adminUsername, 'Moderation bot is online and monitoring the selected room.');
+    await sendPrivateMessage(page, adminUsername, 'hi');
 }
 
 async function runBot(page, username, roomState) {
