@@ -101,22 +101,44 @@
         .welcome p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
         .message-list { display: flex; flex-direction: column; gap: 18px; }
         .message-enter { animation: content-enter .34s cubic-bezier(.2,.8,.2,1) var(--entrance-delay, 0ms) both; }
-        .message { display: flex; gap: 12px; min-width: 0; }
+        .message { position: relative; display: flex; gap: 12px; min-width: 0; padding: 5px 8px; margin: -5px -8px; border-left: 2px solid transparent; border-radius: 8px; transition: background-color .25s ease, border-color .25s ease; }
+        .message.has-reply .message-text { width: fit-content; max-width: 100%; padding: 6px 9px; border-left: 2px solid #69aef8; border-radius: 0 7px 7px 0; background: linear-gradient(90deg, #27629b66, #27629b12); }
+        .message.has-reply .message-image { border-color: #69aef8; box-shadow: 0 0 0 3px #27629b33; }
         .message-content { min-width: 0; flex: 1; }
+        .message-tools { position: absolute; z-index: 1; top: -10px; right: 7px; display: flex; gap: 3px; padding: 3px; border: 1px solid #41424c; border-radius: 7px; background: #292a31; box-shadow: 0 5px 16px #0006; opacity: 0; transform: translateY(3px); transition: opacity .16s ease, transform .16s ease; }
+        .message:hover .message-tools, .message:focus-within .message-tools { opacity: 1; transform: translateY(0); }
+        .message-reply-button { min-width: 32px; padding: 5px 8px; border: 0; border-radius: 5px; color: #d7d1e8; background: transparent; font-size: 11px; }
+        .message-reply-button:hover { color: #fff; background: #41404e; }
+        .message-reply-preview { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 6px; padding: 5px 8px; border-left: 2px solid #68aaf2; border-radius: 0 5px 5px 0; color: #bad8f7; background: #1b385255; font-size: 11px; }
+        .message-reply-author { flex: 0 0 auto; font-weight: 700; }
+        .message-reply-content { overflow: hidden; color: #aec8e4; text-overflow: ellipsis; white-space: nowrap; }
         .message-meta { display: flex; align-items: baseline; gap: 8px; margin: 1px 0 4px; }
         .message-author { color: #f2f0f7; font-size: 13px; font-weight: 700; }
         .message-time { color: #858793; font-size: 10px; }
         .bot-badge { padding: 2px 5px; border-radius: 4px; color: #eee8ff; background: #7254b2; font-size: 9px; font-weight: 750; text-transform: uppercase; }
         .message-text { color: #d5d5dc; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+        .message-image { display: block; max-width: min(420px, 100%); max-height: 340px; margin-top: 8px; border: 1px solid #3b3d48; border-radius: 9px; object-fit: contain; }
         .message.system { padding: 9px 12px; border: 1px solid #5a4828; border-radius: 8px; background: #28241b; }
         .message.system .message-text { color: #e8cf9b; }
         .composer-wrap { padding: 8px 22px 19px; }
         .thinking { min-height: 18px; padding: 0 4px 6px; color: #c2b5ed; font-size: 11px; }
         .thinking:empty { display: none; }
-        .composer { display: flex; align-items: flex-end; gap: 10px; padding: 10px 12px 10px 15px; border: 1px solid #363740; border-radius: 11px; background: #28292f; }
+        .composer-context { display: flex; align-items: center; gap: 9px; margin: 0 4px 7px; padding: 7px 9px; border-left: 2px solid #68aaf2; border-radius: 0 6px 6px 0; color: #bad8f7; background: #1b385255; font-size: 11px; }
+        .composer-context[hidden] { display: none; }
+        .composer-context-copy { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .composer-context-clear { padding: 3px 7px; border: 0; border-radius: 4px; color: #d7d8e2; background: #343640; font-size: 11px; }
+        .image-preview-wrap { display: flex; align-items: center; gap: 10px; margin: 0 4px 7px; padding: 7px; border: 1px solid #383a46; border-radius: 8px; background: #22232a; }
+        .image-preview-wrap[hidden] { display: none; }
+        .image-preview { width: 52px; height: 42px; border-radius: 5px; object-fit: cover; }
+        .image-preview-name { min-width: 0; flex: 1; overflow: hidden; color: #bfc0ca; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+        .image-preview-remove { padding: 5px 8px; border: 0; border-radius: 5px; color: #eeeaf7; background: #393a43; font-size: 11px; }
+        .composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px; border: 1px solid #363740; border-radius: 11px; background: #28292f; }
         .composer:focus-within { border-color: #65539a; }
         .composer textarea { display: block; min-height: 25px; max-height: 150px; flex: 1; resize: none; border: 0; outline: 0; color: #f0eff4; background: transparent; font-size: 13px; line-height: 1.5; }
         .composer textarea::placeholder { color: #878995; }
+        .attach-image { display: grid; flex: 0 0 auto; place-items: center; width: 31px; height: 31px; border: 1px solid #42434d; border-radius: 8px; color: #c9c5d5; background: #303138; font-size: 20px; line-height: 1; }
+        .attach-image:hover { border-color: #7663a6; color: #fff; background: #3a3547; }
+        .image-file-input { display: none; }
         .send { display: grid; place-items: center; width: 31px; height: 31px; border: 0; border-radius: 8px; color: #fff; background: #7359c8; font-size: 17px; }
         .send:hover { background: #876ee0; }
         .send:disabled { cursor: default; opacity: .5; }
@@ -215,6 +237,17 @@
         .admin-controls .danger { border-color: #71434a; color: #ffb2b2; }
         .admin-empty { padding: 25px; color: #a6a7b1; text-align: center; font-size: 13px; }
         .admin-message { padding: 0 17px 12px; color: #ffb2b2; font-size: 11px; }
+        .moderation-dialog { width: min(440px, calc(100% - 28px)); padding: 0; border: 1px solid #41414b; border-radius: 12px; color: #e6e8ef; background: #202127; box-shadow: 0 22px 70px #000a; }
+        .moderation-dialog::backdrop { background: #09090dcc; backdrop-filter: blur(3px); }
+        .moderation-form { display: grid; gap: 12px; padding: 20px; }
+        .moderation-form h2 { margin: 0; font-size: 17px; }
+        .moderation-form label { display: grid; gap: 6px; color: #c9c9d1; font-size: 11px; font-weight: 700; }
+        .moderation-form select, .moderation-form textarea { width: 100%; padding: 9px; border: 1px solid #3d3e47; border-radius: 7px; color: #eeeaf7; background: #191a1f; font: inherit; font-size: 12px; }
+        .moderation-form textarea { min-height: 84px; resize: vertical; }
+        .moderation-error { min-height: 15px; color: #ff9898; font-size: 11px; }
+        .moderation-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+        .moderation-buttons button { padding: 8px 12px; border: 0; border-radius: 7px; color: #eeeaf7; background: #393a43; font-size: 12px; font-weight: 650; }
+        .moderation-buttons .primary { background: #7359c8; }
         @media (max-width: 1050px) {
             .app { grid-template-columns: 64px 210px minmax(0, 1fr); }
             .members { display: none; }
@@ -227,6 +260,7 @@
             .topbar-topic { display: none; }
             .message-scroll { padding: 15px 14px 12px; }
             .composer-wrap { padding: 7px 12px 13px; }
+            .message-tools { opacity: 1; transform: none; }
             .welcome h2 { font-size: 22px; }
             .join-card { padding: 27px 23px; }
             .admin-account { grid-template-columns: minmax(0, 1fr); }
@@ -290,7 +324,18 @@
             </div>
             <div class="composer-wrap">
                 <div class="thinking" id="thinking" role="status"></div>
+                <div class="composer-context" id="reply-context" hidden>
+                    <span class="composer-context-copy" id="reply-context-copy"></span>
+                    <button class="composer-context-clear" id="reply-context-clear" type="button" aria-label="Cancel reply">×</button>
+                </div>
+                <div class="image-preview-wrap" id="image-preview-wrap" hidden>
+                    <img class="image-preview" id="image-preview" alt="Selected image preview">
+                    <span class="image-preview-name" id="image-preview-name"></span>
+                    <button class="image-preview-remove" id="image-preview-remove" type="button">Remove</button>
+                </div>
                 <form class="composer" id="message-form">
+                    <button class="attach-image" id="attach-image" type="button" aria-label="Attach an image">+</button>
+                    <input class="image-file-input" id="image-file-input" type="file" accept="image/png,image/jpeg,image/webp">
                     <textarea id="message-input" rows="1" maxlength="1000" placeholder="Message #general" aria-label="Write a message"></textarea>
                     <button class="send" id="send" type="submit" aria-label="Send message">↑</button>
                 </form>
@@ -349,6 +394,27 @@
             <div class="admin-message" id="admin-message" role="status"></div>
         </div>
     </dialog>
+    <dialog class="moderation-dialog" id="moderation-dialog" aria-labelledby="moderation-title">
+        <form class="moderation-form" id="moderation-form">
+            <h2 id="moderation-title">Moderation action</h2>
+            <label for="moderation-duration">Duration
+                <select id="moderation-duration" required>
+                    <option value="10">10 minutes</option>
+                    <option value="60">1 hour</option>
+                    <option value="1440">1 day</option>
+                    <option value="10080">7 days</option>
+                </select>
+            </label>
+            <label for="moderation-reason">Reason
+                <textarea id="moderation-reason" minlength="3" maxlength="240" required placeholder="Explain why this action is being taken"></textarea>
+            </label>
+            <div class="moderation-error" id="moderation-error" role="alert"></div>
+            <div class="moderation-buttons">
+                <button id="moderation-cancel" type="button">Cancel</button>
+                <button class="primary" id="moderation-submit" type="submit">Apply action</button>
+            </div>
+        </form>
+    </dialog>
     <div class="toast" id="toast" role="status" hidden></div>
 
     <script>
@@ -357,7 +423,7 @@
             'ai-lab': { name: 'ai-lab', topic: 'Ask the bot anything. Start a message with @bot.' },
             'off-topic': { name: 'off-topic', topic: 'Games, music, and everything else.' }
         };
-        const appState = { user: null, profile: null, memberProfiles: new Map(), channel: 'general', activeDm: null, dmSeen: new Map(), dmUnread: new Set(), dmsInitialized: false, dmPolling: false, pingAudioContext: null, lastMessageId: 0, polling: false, channelLoading: false, botPending: 0, authMode: 'login' };
+        const appState = { user: null, profile: null, memberProfiles: new Map(), channel: 'general', activeDm: null, replyTarget: null, selectedImage: null, dmSeen: new Map(), dmUnread: new Set(), dmsInitialized: false, dmPolling: false, pingAudioContext: null, lastMessageId: 0, polling: false, channelLoading: false, botPending: 0, authMode: 'login' };
         const messageList = document.getElementById('message-list');
         const messageScroll = document.getElementById('message-scroll');
         const messageInput = document.getElementById('message-input');
@@ -365,6 +431,7 @@
         const joinError = document.getElementById('join-error');
         const toast = document.getElementById('toast');
         let toastTimeout;
+        let pendingModeration = null;
 
         const pointerGlow = document.querySelector('.pointer-glow');
         const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -528,9 +595,12 @@
         }
 
         function appendMessage(message) {
+            appState.lastMessageId = Math.max(appState.lastMessageId, message.id);
+            if (messageList.querySelector(`[data-message-id="${message.id}"]`)) return;
             const atBottom = messageScroll.scrollHeight - messageScroll.scrollTop - messageScroll.clientHeight < 100;
             const row = document.createElement('article');
-            row.className = `message message-enter${message.kind === 'system' ? ' system' : ''}`;
+            row.className = `message message-enter${message.kind === 'system' ? ' system' : ''}${message.replyTo ? ' has-reply' : ''}`;
+            row.dataset.messageId = message.id;
             row.style.setProperty('--entrance-delay', `${Math.min(messageList.children.length, 7) * 35}ms`);
             const avatar = document.createElement('div');
             avatar.className = 'avatar';
@@ -539,6 +609,15 @@
             if (message.kind === 'bot') avatar.style.background = '#7055b0';
             const content = document.createElement('div');
             content.className = 'message-content';
+            const tools = document.createElement('div');
+            tools.className = 'message-tools';
+            const replyButton = document.createElement('button');
+            replyButton.className = 'message-reply-button';
+            replyButton.type = 'button';
+            replyButton.textContent = 'Reply';
+            replyButton.setAttribute('aria-label', `Reply to ${message.author}'s message`);
+            replyButton.addEventListener('click', () => setReplyTarget(message));
+            tools.append(replyButton);
             const meta = document.createElement('div');
             meta.className = 'message-meta';
             const author = document.createElement('span');
@@ -556,13 +635,33 @@
                 meta.append(badge);
             }
             meta.append(time);
+            if (message.replyTo) {
+                const replyPreview = document.createElement('div');
+                replyPreview.className = 'message-reply-preview';
+                const replyAuthor = document.createElement('span');
+                replyAuthor.className = 'message-reply-author';
+                replyAuthor.textContent = message.replyTo.author;
+                const replyContent = document.createElement('span');
+                replyContent.className = 'message-reply-content';
+                replyContent.textContent = message.replyTo.content || (message.replyTo.image ? 'Image' : '');
+                replyPreview.append(replyAuthor, replyContent);
+                content.append(replyPreview);
+            }
             const text = document.createElement('div');
             text.className = 'message-text';
             text.textContent = message.content;
-            content.append(meta, text);
-            row.append(avatar, content);
+            content.append(meta);
+            if (message.content) content.append(text);
+            if (message.image) {
+                const image = document.createElement('img');
+                image.className = 'message-image';
+                image.src = message.image;
+                image.alt = `Image shared by ${message.author}`;
+                image.loading = 'lazy';
+                content.append(image);
+            }
+            row.append(avatar, content, tools);
             messageList.append(row);
-            appState.lastMessageId = Math.max(appState.lastMessageId, message.id);
             if (message.kind === 'bot' || message.kind === 'system') {
                 appState.botPending = Math.max(0, appState.botPending - 1);
                 updateThinking();
@@ -576,9 +675,39 @@
                 : '';
         }
 
+        function setReplyTarget(message) {
+            appState.replyTarget = {
+                id: message.id,
+                author: message.author,
+                content: message.content,
+                image: message.image || null
+            };
+            const context = document.getElementById('reply-context');
+            const copy = document.getElementById('reply-context-copy');
+            copy.textContent = `Replying to ${message.author}: ${message.content || (message.image ? 'Image' : '')}`;
+            context.hidden = false;
+            messageInput.focus();
+        }
+
+        function clearReplyTarget() {
+            appState.replyTarget = null;
+            document.getElementById('reply-context').hidden = true;
+            document.getElementById('reply-context-copy').textContent = '';
+        }
+
+        function clearSelectedImage() {
+            appState.selectedImage = null;
+            document.getElementById('image-file-input').value = '';
+            document.getElementById('image-preview').removeAttribute('src');
+            document.getElementById('image-preview-name').textContent = '';
+            document.getElementById('image-preview-wrap').hidden = true;
+        }
+
         async function loadChannel() {
             const channelId = appState.channel;
             appState.activeDm = null;
+            clearReplyTarget();
+            clearSelectedImage();
             appState.channelLoading = true;
             appState.lastMessageId = 0;
             appState.botPending = 0;
@@ -744,6 +873,8 @@
         async function loadDirectMessage(username) {
             const userId = username.toLowerCase();
             appState.activeDm = username;
+            clearReplyTarget();
+            clearSelectedImage();
             appState.channelLoading = true;
             appState.lastMessageId = 0;
             appState.botPending = 0;
@@ -1120,7 +1251,7 @@
                 refreshUsers();
                 if (username.toLowerCase() === appState.user.name.toLowerCase()) refreshOwnProfile();
             }
-            return result.account;
+            return result;
         }
 
         async function loadAdminAccounts() {
@@ -1168,7 +1299,7 @@
                 ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(account.createdAt))
                 : 'Legacy account';
             const state = account.banned ? 'Banned'
-                : account.muted ? 'Muted'
+                : account.muted ? account.muteUntil > Date.now() ? `Muted until ${new Date(account.muteUntil).toLocaleString()}` : 'Muted'
                     : account.mutedUntil > Date.now() ? `Timed out until ${new Date(account.mutedUntil).toLocaleString()}`
                         : 'In good standing';
             stats.textContent = `Joined ${created} · ${account.messageCount} messages · active ${formatActivity(account.activeSeconds)} · ${account.warnings.length} warnings · ${state}`;
@@ -1218,10 +1349,15 @@
                     button.addEventListener('click', async () => {
                         try {
                             if (action === 'ban' && !confirm(`Ban ${account.username}? Their active sessions will be signed out.`)) return;
-                            if (action === 'timeout') {
-                                const minutes = Number(prompt(`Timeout ${account.username} for how many minutes? (1–10080)`, '10'));
-                                if (!Number.isInteger(minutes)) return;
-                                await adminAction(account.username, action, { minutes });
+                            if (['mute', 'ghost', 'timeout'].includes(action)) {
+                                pendingModeration = { username: account.username, action };
+                                const names = { mute: 'Mute', ghost: 'Ghost', timeout: 'Timeout' };
+                                document.getElementById('moderation-title').textContent = `${names[action]} ${account.username}`;
+                                document.getElementById('moderation-duration').value = '10';
+                                document.getElementById('moderation-reason').value = '';
+                                document.getElementById('moderation-error').textContent = '';
+                                document.getElementById('moderation-dialog').showModal();
+                                document.getElementById('moderation-reason').focus();
                             } else if (action === 'warn') {
                                 const reason = prompt(`Add a warning for ${account.username}:`);
                                 if (reason === null) return;
@@ -1247,6 +1383,47 @@
 
         document.getElementById('developer-open').addEventListener('click', openAdminPanel);
         document.getElementById('admin-close').addEventListener('click', () => document.getElementById('admin-dialog').close());
+        document.getElementById('moderation-cancel').addEventListener('click', () => {
+            pendingModeration = null;
+            document.getElementById('moderation-dialog').close();
+        });
+        document.getElementById('moderation-form').addEventListener('submit', async event => {
+            event.preventDefault();
+            const pending = pendingModeration;
+            if (!pending) return;
+            const reason = document.getElementById('moderation-reason').value.trim();
+            const minutes = Number(document.getElementById('moderation-duration').value);
+            const errorElement = document.getElementById('moderation-error');
+            if (reason.length < 3 || reason.length > 240) {
+                errorElement.textContent = 'Enter a reason between 3 and 240 characters.';
+                return;
+            }
+            const submit = document.getElementById('moderation-submit');
+            submit.disabled = true;
+            errorElement.textContent = '';
+            try {
+                const result = await adminAction(pending.username, pending.action, {
+                    reason,
+                    minutes,
+                    channel: appState.channel
+                });
+                if (!appState.activeDm && appState.channel === result.message.channelId) {
+                    appendMessage(result.message);
+                }
+                pendingModeration = null;
+                document.getElementById('moderation-dialog').close();
+            } catch (error) {
+                errorElement.textContent = error.message;
+            } finally {
+                submit.disabled = false;
+            }
+        });
+        document.getElementById('moderation-dialog').addEventListener('click', event => {
+            if (event.target === event.currentTarget) {
+                pendingModeration = null;
+                event.currentTarget.close();
+            }
+        });
         document.getElementById('admin-dialog').addEventListener('click', event => {
             if (event.target === event.currentTarget) event.currentTarget.close();
         });
@@ -1366,23 +1543,69 @@
             }
         });
 
+        document.getElementById('attach-image').addEventListener('click', () => {
+            document.getElementById('image-file-input').click();
+        });
+
+        document.getElementById('image-file-input').addEventListener('change', async event => {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+                    throw new Error('Choose a PNG, JPEG, or WebP image.');
+                }
+                if (file.size > 12 * 1024 * 1024) throw new Error('Choose an image smaller than 12 MB.');
+                const bitmap = await createImageBitmap(file);
+                const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+                canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+                const context = canvas.getContext('2d');
+                if (!context) {
+                    bitmap.close();
+                    throw new Error('Your browser could not prepare that image.');
+                }
+                context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                bitmap.close();
+                const image = canvas.toDataURL('image/webp', 0.82);
+                if (image.length > 4 * 1024 * 1024 * 1.4) {
+                    throw new Error('That image is too large to send. Choose a smaller image.');
+                }
+                appState.selectedImage = { data: image, name: file.name };
+                document.getElementById('image-preview').src = image;
+                document.getElementById('image-preview-name').textContent = file.name;
+                document.getElementById('image-preview-wrap').hidden = false;
+            } catch (error) {
+                clearSelectedImage();
+                showToast(error.message || 'Could not prepare that image.');
+            }
+        });
+
+        document.getElementById('image-preview-remove').addEventListener('click', clearSelectedImage);
+        document.getElementById('reply-context-clear').addEventListener('click', clearReplyTarget);
+
         document.getElementById('message-form').addEventListener('submit', async event => {
             event.preventDefault();
             const content = messageInput.value.trim();
-            if (!content) return;
+            if (!content && !appState.selectedImage) return;
             const button = document.getElementById('send');
+            if (button.disabled) return;
             button.disabled = true;
             try {
                 const directMessageUser = appState.activeDm;
+                const image = appState.selectedImage?.data || null;
+                const replyToId = appState.replyTarget?.id || null;
                 const result = await request(directMessageUser ? '/api/dms' : '/api/messages', {
                     method: 'POST',
                     body: JSON.stringify(directMessageUser
-                        ? { recipient: directMessageUser, content }
-                        : { channel: appState.channel, content })
+                        ? { recipient: directMessageUser, content, image, replyToId }
+                        : { channel: appState.channel, content, image, replyToId })
                 });
                 messageInput.value = '';
                 messageInput.style.height = 'auto';
-                if (result.message.id > appState.lastMessageId) appendMessage(result.message);
+                clearReplyTarget();
+                clearSelectedImage();
+                appendMessage(result.message);
                 if (result.botPending) {
                     appState.botPending += 1;
                     updateThinking();

@@ -106,6 +106,17 @@ test('serves the chat app with security headers and no external chat integration
     assert.match(page, /@bot/);
     assert.match(page, /Username or email/);
     assert.match(page, /Create account/);
+    assert.match(page, /id="attach-image"/);
+    assert.match(page, /message-reply-button/);
+    assert.match(page, /\.message\.has-reply \.message-text \{/);
+    assert.match(page, /\.message\.has-reply \.message-image \{/);
+    assert.match(page, /message\.replyTo \? ' has-reply' : ''/);
+    assert.doesNotMatch(page, /\.message\.has-reply \{[^}]*background/);
+    assert.match(page, /id="moderation-dialog"/);
+    assert.match(page, /id="moderation-duration"/);
+    assert.match(page, /id="moderation-reason"/);
+    assert.match(page, /channel: appState\.channel/);
+    assert.doesNotMatch(page, /replied-to-target/);
     assert.match(page, /\.message-scroll \{ display: flex; min-height: 0;/);
     assert.match(page, /@keyframes content-enter/);
     assert.match(page, /profile-edit-form\.editor-enter/);
@@ -195,6 +206,8 @@ test('sends and retrieves private direct messages only within each conversation'
         id: 1,
         author: 'DirectAlice',
         content: 'Hello privately.',
+        image: null,
+        replyTo: null,
         kind: 'user',
         createdAt: sentResult.message.createdAt
     });
@@ -205,6 +218,85 @@ test('sends and retrieves private direct messages only within each conversation'
     assert.equal(bobConversation.username, 'DirectAlice');
     assert.equal(bobConversation.latestIncomingMessageId, sentResult.message.id);
     assert.deepEqual((await eveMessages.json()).messages, []);
+
+    await new Promise(resolve => setTimeout(resolve, 320));
+    const imageBytes = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP')]);
+    const image = `data:image/webp;base64,${imageBytes.toString('base64')}`;
+    const replyResponse = await fetch(`${baseUrl}/api/dms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: bobCookie },
+        body: JSON.stringify({
+            recipient: 'DirectAlice',
+            content: 'Here is the image.',
+            image,
+            replyToId: sentResult.message.id
+        })
+    });
+    const reply = (await replyResponse.json()).message;
+    const aliceUpdated = await fetch(`${baseUrl}/api/dms/DirectBob`, { headers: { Cookie: aliceCookie } });
+
+    assert.equal(replyResponse.status, 201);
+    assert.equal(reply.image, image);
+    assert.deepEqual(reply.replyTo, {
+        id: sentResult.message.id,
+        author: 'DirectAlice',
+        content: 'Hello privately.',
+        image: false
+    });
+    assert.deepEqual((await aliceUpdated.json()).messages, [sentResult.message, reply]);
+});
+
+test('supports image-only channel messages and replies with message context', async t => {
+    const baseUrl = await startServer(t);
+    const { cookie } = await join(baseUrl, 'ReplyUser');
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie };
+    const imageBytes = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP')]);
+    const image = `data:image/webp;base64,${imageBytes.toString('base64')}`;
+    const originalResponse = await fetch(`${baseUrl}/api/messages`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ channel: 'general', content: 'Original message' })
+    });
+    const original = (await originalResponse.json()).message;
+    await new Promise(resolve => setTimeout(resolve, 320));
+    const replyResponse = await fetch(`${baseUrl}/api/messages`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ channel: 'general', content: '', image, replyToId: original.id })
+    });
+    const reply = (await replyResponse.json()).message;
+    const history = await fetch(`${baseUrl}/api/messages?channel=general`, { headers: { Cookie: cookie } });
+    const messages = (await history.json()).messages;
+
+    assert.equal(originalResponse.status, 201);
+    assert.equal(replyResponse.status, 201);
+    assert.equal(reply.image, image);
+    assert.deepEqual(reply.replyTo, {
+        id: original.id,
+        author: 'ReplyUser',
+        content: 'Original message',
+        image: false
+    });
+    assert.deepEqual(messages, [original, reply]);
+});
+
+test('rejects invalid chat images and replies to missing messages', async t => {
+    const baseUrl = await startServer(t);
+    const { cookie } = await join(baseUrl, 'InvalidImageUser');
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie };
+    const invalidImage = await fetch(`${baseUrl}/api/messages`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ channel: 'general', content: '', image: 'data:image/png;base64,AAAA' })
+    });
+    const missingReply = await fetch(`${baseUrl}/api/messages`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ channel: 'general', content: 'Reply', replyToId: 999 })
+    });
+
+    assert.equal(invalidImage.status, 400);
+    assert.equal(missingReply.status, 400);
 });
 
 test('returns separate online and offline user directories', async t => {
@@ -397,7 +489,13 @@ test('owner tools manage ranks, ghosting, moderation, and account stats', async 
         body: JSON.stringify(body)
     });
     assert.equal((await adminAction('TargetUser', { action: 'role', role: 'moderator' })).status, 200);
-    assert.equal((await adminAction('TargetUser', { action: 'ghost' })).status, 200);
+    assert.equal((await adminAction('TargetUser', { action: 'ghost' })).status, 400);
+    const ghostActionResponse = await adminAction('TargetUser', {
+        action: 'ghost', minutes: 60, reason: 'Repeated disruptive messages.', channel: 'general'
+    });
+    const ghostAction = await ghostActionResponse.json();
+    assert.equal(ghostActionResponse.status, 200);
+    assert.match(ghostAction.message.content, /TargetUser was ghosted for 1 hour\. Reason: Repeated disruptive messages\./);
     assert.equal((await adminAction('TargetUser', { action: 'warn', reason: 'Please keep the chat respectful.' })).status, 200);
 
     const ghosted = await fetch(`${base}/api/messages`, {
@@ -408,10 +506,16 @@ test('owner tools manage ranks, ghosting, moderation, and account stats', async 
     assert.equal(ghosted.status, 201);
     const mine = await fetch(`${base}/api/messages?channel=general`, { headers: { Cookie: targetCookie } });
     const others = await fetch(`${base}/api/messages?channel=general`, { headers: { Cookie: readerCookie } });
-    assert.equal((await mine.json()).messages.length, 1);
-    assert.equal((await others.json()).messages.length, 0);
+    assert.equal((await mine.json()).messages.filter(message => message.author === 'TargetUser').length, 1);
+    assert.equal((await others.json()).messages.filter(message => message.author === 'TargetUser').length, 0);
 
-    assert.equal((await adminAction('TargetUser', { action: 'mute' })).status, 200);
+    const muteActionResponse = await adminAction('TargetUser', {
+        action: 'mute', minutes: 10, reason: 'Please stop flooding the channel.', channel: 'general'
+    });
+    const muteAction = await muteActionResponse.json();
+    assert.equal(muteActionResponse.status, 200);
+    assert.ok(muteAction.account.muteUntil > Date.now());
+    assert.match(muteAction.message.content, /TargetUser was muted for 10 minutes\. Reason: Please stop flooding the channel\./);
     const mutedMessage = await fetch(`${base}/api/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: targetCookie },
@@ -419,8 +523,17 @@ test('owner tools manage ranks, ghosting, moderation, and account stats', async 
     });
     assert.equal(mutedMessage.status, 403);
     assert.equal((await adminAction('TargetUser', { action: 'unmute' })).status, 200);
-    assert.equal((await adminAction('TargetUser', { action: 'timeout', minutes: 10 })).status, 200);
+    const timeoutActionResponse = await adminAction('TargetUser', {
+        action: 'timeout', minutes: 1440, reason: 'Please take a break.', channel: 'general'
+    });
+    const timeoutAction = await timeoutActionResponse.json();
+    assert.equal(timeoutActionResponse.status, 200);
+    assert.ok(timeoutAction.account.mutedUntil > Date.now());
+    assert.match(timeoutAction.message.content, /TargetUser was timed out for 1 day\. Reason: Please take a break\./);
     assert.equal((await adminAction('TargetUser', { action: 'untimeout' })).status, 200);
+    const noticesResponse = await fetch(`${base}/api/messages?channel=general`, { headers: { Cookie: readerCookie } });
+    const notices = (await noticesResponse.json()).messages.filter(message => message.author === 'Orbit');
+    assert.equal(notices.length, 3);
 
     const afterActions = await fetch(`${base}/api/admin/accounts`, { headers: { Cookie: ownerCookie } });
     const targetStats = (await afterActions.json()).accounts.find(account => account.username === 'TargetUser');
@@ -520,6 +633,8 @@ test('stores channel messages under the signed-in account name', async t => {
     assert.equal(response.status, 201);
     assert.equal(result.message.author, 'Alice');
     assert.equal(result.message.content, 'Hello there');
+    assert.equal(result.message.image, null);
+    assert.equal(result.message.replyTo, null);
     assert.equal(result.message.channelId, 'general');
     assert.equal(result.message.kind, 'user');
 

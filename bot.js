@@ -12,6 +12,7 @@ const MAX_BODY_BYTES = 9 * 1024 * 1024;
 const MAX_MESSAGE_LENGTH = 1000;
 const MESSAGE_HISTORY_LIMIT = 200;
 const MAX_AVATAR_BYTES = 256 * 1024;
+const MAX_CHAT_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_MUSIC_BYTES = 6 * 1024 * 1024;
 const MAX_BIO_LENGTH = 160;
 const OWNER_USERNAME = (process.env.OWNER_USERNAME || 'solosinned').toLowerCase();
@@ -117,12 +118,30 @@ async function loadAccounts(state, userStorePath) {
             account.mutedUntil = null;
             migrated = true;
         }
+        if (account.muteUntil !== null && account.muteUntil !== undefined
+            && (!Number.isFinite(account.muteUntil) || account.muteUntil < 0)) {
+            account.muteUntil = null;
+            migrated = true;
+        }
+        if (account.muteUntil === undefined) {
+            account.muteUntil = null;
+            migrated = true;
+        }
         if (typeof account.banned !== 'boolean') {
             account.banned = false;
             migrated = true;
         }
         if (typeof account.ghosted !== 'boolean') {
             account.ghosted = false;
+            migrated = true;
+        }
+        if (account.ghostedUntil !== null && account.ghostedUntil !== undefined
+            && (!Number.isFinite(account.ghostedUntil) || account.ghostedUntil < 0)) {
+            account.ghostedUntil = null;
+            migrated = true;
+        }
+        if (account.ghostedUntil === undefined) {
+            account.ghostedUntil = null;
             migrated = true;
         }
         account.bio ??= '';
@@ -171,6 +190,31 @@ function validMusic(value) {
     return ['mpeg', 'mp3', 'wav', 'ogg', 'webm', 'aac', 'm4a', 'mp4', 'x-m4a'].includes(mime);
 }
 
+function validChatImage(value) {
+    if (typeof value !== 'string') return false;
+    const match = value.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/);
+    if (!match) return false;
+    const bytes = Buffer.from(match[2], 'base64');
+    if (bytes.length === 0 || bytes.length > MAX_CHAT_IMAGE_BYTES || bytes.toString('base64') !== match[2]) return false;
+    if (match[1] === 'png') return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    if (match[1] === 'jpeg') return bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+    return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF'
+        && bytes.toString('ascii', 8, 12) === 'WEBP';
+}
+
+function messageReply(messages, replyToId, viewerUserId = null) {
+    if (replyToId === undefined || replyToId === null || replyToId === '') return null;
+    if (!Number.isSafeInteger(replyToId) || replyToId < 1) return undefined;
+    const original = messages.find(message => message.id === replyToId);
+    if (!original || (original.recipientUserId && original.recipientUserId !== viewerUserId)) return undefined;
+    return {
+        id: original.id,
+        author: original.author,
+        content: original.content,
+        image: Boolean(original.image)
+    };
+}
+
 function publicProfile(account) {
     return {
         username: account.username,
@@ -187,16 +231,27 @@ function memberDirectoryProfile(account) {
     return profile;
 }
 
+function accountIsMuted(account, now = Date.now()) {
+    return Boolean(account.muted || account.muteUntil > now || account.mutedUntil > now);
+}
+
+function accountIsGhosted(account, now = Date.now()) {
+    return account.ghosted && (!account.ghostedUntil || account.ghostedUntil > now);
+}
+
 function adminAccount(account) {
+    const now = Date.now();
     return {
         ...publicProfile(account),
         email: account.email,
         createdAt: account.createdAt,
         messageCount: account.messageCount,
         activeSeconds: Math.floor(account.activeSeconds),
+        muteUntil: account.muteUntil,
         mutedUntil: account.mutedUntil,
+        muted: account.muted || account.muteUntil > now,
         banned: account.banned,
-        ghosted: account.ghosted,
+        ghosted: accountIsGhosted(account, now),
         warnings: account.warnings
     };
 }
@@ -496,9 +551,11 @@ async function createChatServer({
                         messageCount: 0,
                         activeSeconds: 0,
                         muted: false,
+                        muteUntil: null,
                         mutedUntil: null,
                         banned: false,
                         ghosted: false,
+                        ghostedUntil: null,
                         warnings: []
                     };
                     state.accounts.set(username.toLowerCase(), account);
@@ -631,15 +688,28 @@ async function createChatServer({
                             return;
                         }
                         Object.assign(target, { bio, avatar, music, status });
-                    } else if (action === 'mute' || action === 'unmute') {
-                        target.muted = action === 'mute';
-                    } else if (action === 'timeout') {
+                    } else if (action === 'mute' || action === 'ghost' || action === 'timeout') {
+                        const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
                         const minutes = Number(body.minutes);
-                        if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) {
-                            sendJson(response, 400, { error: 'Timeout must be between 1 minute and 7 days.' });
+                        const channel = CHANNELS.find(item => item.id === body.channel);
+                        if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080
+                            || reason.length < 3 || reason.length > 240 || !channel) {
+                            sendJson(response, 400, { error: 'Choose a duration from 1 minute to 7 days, enter a reason of 3–240 characters, and select a valid channel.' });
                             return;
                         }
-                        target.mutedUntil = Date.now() + minutes * 60000;
+                        const until = Date.now() + minutes * 60000;
+                        if (action === 'mute') {
+                            target.muteUntil = until;
+                        } else if (action === 'ghost') {
+                            target.ghosted = true;
+                            target.ghostedUntil = until;
+                        } else {
+                            target.muted = false;
+                            target.mutedUntil = until;
+                        }
+                    } else if (action === 'unmute') {
+                        target.muted = false;
+                        target.muteUntil = null;
                     } else if (action === 'untimeout') {
                         target.mutedUntil = null;
                     } else if (action === 'warn') {
@@ -656,8 +726,9 @@ async function createChatServer({
                             return;
                         }
                         target.banned = action === 'ban';
-                    } else if (action === 'ghost' || action === 'unghost') {
-                        target.ghosted = action === 'ghost';
+                    } else if (action === 'unghost') {
+                        target.ghosted = false;
+                        target.ghostedUntil = null;
                     } else {
                         sendJson(response, 400, { error: 'Unknown developer action.' });
                         return;
@@ -680,6 +751,24 @@ async function createChatServer({
                         for (const [id, activeSession] of state.sessions) {
                             if (activeSession.userId === target.username.toLowerCase()) state.sessions.delete(id);
                         }
+                    }
+                    if (action === 'mute' || action === 'ghost' || action === 'timeout') {
+                        const minutes = Number(body.minutes);
+                        const duration = minutes % 1440 === 0
+                            ? `${minutes / 1440} day${minutes === 1440 ? '' : 's'}`
+                            : minutes % 60 === 0
+                                ? `${minutes / 60} hour${minutes === 60 ? '' : 's'}`
+                                : `${minutes} minute${minutes === 1 ? '' : 's'}`;
+                        const actionText = action === 'timeout' ? 'timed out' : action === 'ghost' ? 'ghosted' : 'muted';
+                        const message = createMessage(
+                            state,
+                            body.channel,
+                            'Orbit',
+                            `${target.username} was ${actionText} for ${duration}. Reason: ${body.reason.trim()}`,
+                            'bot'
+                        );
+                        sendJson(response, 200, { account: adminAccount(target), message });
+                        return;
                     }
                     sendJson(response, 200, { account: adminAccount(target) });
                 } catch (error) {
@@ -787,11 +876,11 @@ async function createChatServer({
                 .map(current => current.userId));
             const users = [...activeUserIds]
                 .map(userId => state.accounts.get(userId))
-                .filter(account => account && !account.banned)
+                .filter(account => account && !account.banned && !accountIsGhosted(account))
                 .map(memberDirectoryProfile)
                 .sort((a, b) => a.username.localeCompare(b.username));
             const offlineUsers = [...state.accounts.values()]
-                .filter(account => !activeUserIds.has(account.username.toLowerCase()) && !account.banned && !account.ghosted)
+                .filter(account => !activeUserIds.has(account.username.toLowerCase()) && !account.banned && !accountIsGhosted(account))
                 .map(memberDirectoryProfile)
                 .sort((a, b) => a.username.localeCompare(b.username));
             sendJson(response, 200, { users, offlineUsers });
@@ -805,7 +894,7 @@ async function createChatServer({
                 if (!participants.includes(session.userId) || messages.length === 0) continue;
                 const otherUserId = participants.find(userId => userId !== session.userId);
                 const otherAccount = state.accounts.get(otherUserId);
-                if (!otherAccount || otherAccount.banned || otherAccount.ghosted) continue;
+                if (!otherAccount || otherAccount.banned || accountIsGhosted(otherAccount)) continue;
                 const incoming = messages.filter(message => message.recipientId === session.userId).at(-1) || null;
                 const latest = messages.at(-1);
                 conversations.push({
@@ -815,7 +904,7 @@ async function createChatServer({
                     latestMessage: {
                         id: latest.id,
                         author: latest.author,
-                        content: latest.content,
+                        content: latest.content || (latest.image ? 'Image' : ''),
                         createdAt: latest.createdAt
                     },
                     latestIncomingMessageId: incoming?.id || 0
@@ -835,7 +924,7 @@ async function createChatServer({
                 return;
             }
             const otherAccount = state.accounts.get(username);
-            if (!otherAccount || otherAccount.banned || otherAccount.ghosted || username === session.userId) {
+            if (!otherAccount || otherAccount.banned || accountIsGhosted(otherAccount) || username === session.userId) {
                 sendJson(response, 404, { error: 'That direct message conversation is unavailable.' });
                 return;
             }
@@ -860,16 +949,21 @@ async function createChatServer({
                 const recipientId = recipientName.toLowerCase();
                 const recipient = state.accounts.get(recipientId);
                 const content = typeof body.content === 'string' ? body.content.trim() : '';
-                if (!recipient || recipient.banned || recipient.ghosted || recipientId === session.userId) {
+                const image = body.image === undefined || body.image === null ? null : body.image;
+                if (!recipient || recipient.banned || accountIsGhosted(recipient) || recipientId === session.userId) {
                     sendJson(response, 404, { error: 'That direct message recipient is unavailable.' });
                     return;
                 }
-                if (!content || content.length > MAX_MESSAGE_LENGTH) {
-                    sendJson(response, 400, { error: `Messages must be between 1 and ${MAX_MESSAGE_LENGTH} characters.` });
+                if ((!content && !image) || content.length > MAX_MESSAGE_LENGTH) {
+                    sendJson(response, 400, { error: `Messages must contain text or an image and no more than ${MAX_MESSAGE_LENGTH} characters.` });
+                    return;
+                }
+                if (image !== null && !validChatImage(image)) {
+                    sendJson(response, 400, { error: 'Chat images must be PNG, JPEG, or WebP files up to 4 MB.' });
                     return;
                 }
                 const currentAccount = state.accounts.get(session.userId);
-                if (currentAccount.muted || (currentAccount.mutedUntil && currentAccount.mutedUntil > Date.now())) {
+                if (accountIsMuted(currentAccount)) {
                     sendJson(response, 403, { error: currentAccount.muted ? 'Your account is muted.' : 'Your account is timed out.' });
                     return;
                 }
@@ -878,13 +972,20 @@ async function createChatServer({
                     sendJson(response, 429, { error: 'Please wait a moment before sending another message.' });
                     return;
                 }
-                session.lastDirectMessageAt = now;
                 const key = directMessageKey(session.userId, recipientId);
                 const conversation = state.directMessages.get(key) || [];
+                const replyTo = messageReply(conversation, body.replyToId);
+                if (replyTo === undefined) {
+                    sendJson(response, 400, { error: 'The message you are replying to could not be found.' });
+                    return;
+                }
+                session.lastDirectMessageAt = now;
                 const message = {
                     id: state.nextDirectMessageId++,
                     author: currentAccount.username,
                     content,
+                    image,
+                    replyTo,
                     kind: 'user',
                     createdAt: new Date().toISOString(),
                     senderId: session.userId,
@@ -926,16 +1027,21 @@ async function createChatServer({
                 const body = await readJson(request);
                 const channel = CHANNELS.find(item => item.id === body.channel);
                 const content = typeof body.content === 'string' ? body.content.trim() : '';
+                const image = body.image === undefined || body.image === null ? null : body.image;
                 if (!channel) {
                     sendJson(response, 404, { error: 'Channel not found.' });
                     return;
                 }
-                if (!content || content.length > MAX_MESSAGE_LENGTH) {
-                    sendJson(response, 400, { error: `Messages must be between 1 and ${MAX_MESSAGE_LENGTH} characters.` });
+                if ((!content && !image) || content.length > MAX_MESSAGE_LENGTH) {
+                    sendJson(response, 400, { error: `Messages must contain text or an image and no more than ${MAX_MESSAGE_LENGTH} characters.` });
+                    return;
+                }
+                if (image !== null && !validChatImage(image)) {
+                    sendJson(response, 400, { error: 'Chat images must be PNG, JPEG, or WebP files up to 4 MB.' });
                     return;
                 }
                 const currentAccount = state.accounts.get(session.userId);
-                if (currentAccount.muted || (currentAccount.mutedUntil && currentAccount.mutedUntil > Date.now())) {
+                if (accountIsMuted(currentAccount)) {
                     sendJson(response, 403, { error: currentAccount.muted ? 'Your account is muted.' : 'Your account is timed out.' });
                     return;
                 }
@@ -953,13 +1059,20 @@ async function createChatServer({
                     sendJson(response, 429, { error: 'The bot is busy in this channel. Try again shortly.' });
                     return;
                 }
+                const replyTo = messageReply(state.messages.get(channel.id), body.replyToId, session.userId);
+                if (replyTo === undefined) {
+                    sendJson(response, 400, { error: 'The message you are replying to could not be found.' });
+                    return;
+                }
                 session.lastMessageAt = now;
                 if (mentionsBot) session.lastBotAt = now;
                 const message = createMessage(state, channel.id, session.name, content);
+                message.image = image;
+                message.replyTo = replyTo;
                 await markMessageCount(state, currentAccount);
-                if (currentAccount.ghosted) message.recipientUserId = session.userId;
+                if (accountIsGhosted(currentAccount)) message.recipientUserId = session.userId;
                 sendJson(response, 201, { message, botPending: mentionsBot });
-                if (mentionsBot && !currentAccount.ghosted) {
+                if (mentionsBot && !accountIsGhosted(currentAccount)) {
                     state.botCounts.set(channel.id, (state.botCounts.get(channel.id) || 0) + 1);
                     const previous = state.botQueues.get(channel.id) || Promise.resolve();
                     const next = previous.then(async () => {
