@@ -1,13 +1,10 @@
 {
-  "name": "pencil-practice-moderation-bot",
+  "name": "orbit-chat",
   "version": "1.0.0",
   "private": true,
-  "description": "A Playwright moderation-alert bot for Pencil Practice chat",
+  "description": "A multi-channel chat site with an Ollama-powered AI bot",
   "scripts": {
     "start": "node bot.js",
     "test": "node --test"
-  },
-  "dependencies": {
-    "playwright": "^1.55.0"
   }
 }

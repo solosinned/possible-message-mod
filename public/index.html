@@ -1,0 +1,1424 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Orbit — chat together</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: #e6e8ef;
+            background: #17181c;
+            font-synthesis: none;
+            text-rendering: optimizeLegibility;
+            --bg: #17181c;
+            --side: #1e1f24;
+            --panel: #23242a;
+            --muted: #9396a3;
+            --line: #303139;
+            --accent: #a78bfa;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-width: 320px; height: 100vh; height: 100dvh; overflow: hidden; }
+        button, input, textarea { font: inherit; }
+        button { color: inherit; cursor: pointer; }
+        button, .channel-link, .member { position: relative; overflow: hidden; transition: background-color .18s ease, border-color .18s ease, box-shadow .22s ease, color .18s ease, transform .18s cubic-bezier(.2,.8,.2,1); }
+        button:hover:not(:disabled), .channel-link:hover, .member:hover { transform: translateY(-1px); }
+        button:active:not(:disabled), .channel-link:active, .member:active { transform: scale(.98); }
+        button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid #bba8ff; outline-offset: 2px; }
+        .pointer-glow { position: fixed; z-index: 1; left: var(--pointer-x, -500px); top: var(--pointer-y, -500px); width: 360px; height: 360px; border-radius: 50%; pointer-events: none; opacity: 0; background: radial-gradient(circle, #9a78f51c 0, #8b6be00d 36%, transparent 70%); transform: translate(-50%, -50%); transition: opacity .25s ease, left .12s ease-out, top .12s ease-out; }
+        .pointer-glow.visible { opacity: 1; }
+        .click-ripple { position: absolute; z-index: 0; left: var(--ripple-x); top: var(--ripple-y); width: var(--ripple-size); height: var(--ripple-size); border-radius: 50%; background: #d7caff55; pointer-events: none; transform: scale(0); animation: click-ripple .55s ease-out forwards; }
+        @keyframes click-ripple { to { opacity: 0; transform: scale(1); } }
+        @keyframes content-enter { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes dialog-enter { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes editor-enter { from { opacity: 0; transform: translateY(12px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @media (hover: none), (pointer: coarse) { .pointer-glow { display: none; } }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+            .pointer-glow, .click-ripple { display: none !important; }
+        }
+        .app { display: grid; grid-template-columns: 72px 230px minmax(0, 1fr) 220px; height: 100vh; height: 100dvh; min-height: 0; }
+        .servers { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 0; background: #141519; }
+        .brand-mark, .server-mark { display: grid; place-items: center; width: 46px; height: 46px; border: 0; border-radius: 16px; color: #fff; font-weight: 800; }
+        .brand-mark { background: linear-gradient(145deg, #9f7aea, #7252d4); font-size: 19px; }
+        .server-mark { background: #272830; color: #b8bac5; font-size: 17px; transition: border-radius .16s, background .16s; }
+        .server-mark.active, .server-mark:hover { border-radius: 13px; background: #7359c8; color: #fff; }
+        .server-divider { width: 30px; height: 1px; margin: 2px 0; background: #34353c; }
+        .channels { display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--side); }
+        .workspace-name { display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 18px; border-bottom: 1px solid #282930; font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+        .workspace-name span:last-child { color: #9b9da9; font-size: 18px; }
+        .channel-groups { flex: 1; overflow-y: auto; padding: 22px 10px; scrollbar-color: #3a3b43 transparent; }
+        .group-title { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 8px; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+        .channel-link { display: flex; align-items: center; gap: 10px; width: 100%; margin: 2px 0; padding: 9px 10px; border: 0; border-radius: 7px; color: #a7a9b4; background: transparent; text-align: left; font-size: 14px; }
+        .channel-link span { color: #777984; font-size: 19px; line-height: 15px; }
+        .channel-link:hover { color: #e7e7eb; background: #292a31; }
+        .channel-link.active { color: #fff; background: #34313e; }
+        .channel-link.active span { color: var(--accent); }
+        .dm-section { margin-top: 24px; }
+        .dm-section-title, .member-section-title { margin: 0 0 9px; padding: 0 8px; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+        .dm-list, .offline-list { display: flex; flex-direction: column; gap: 5px; }
+        .dm-link { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; border-radius: 7px; color: #b8bac5; background: transparent; text-align: left; font-size: 12px; }
+        .dm-link:hover, .dm-link.active { color: #f0eff4; background: #2b2a32; }
+        .dm-link .avatar { width: 27px; height: 27px; font-size: 10px; }
+        .dm-link-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dm-preview { overflow: hidden; max-width: 78px; color: #8f91a0; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+        .dm-unread { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #b79bff; box-shadow: 0 0 9px #a78bfa88; }
+        .dm-empty { padding: 3px 8px; color: #777984; font-size: 11px; }
+        .developer-open { width: 100%; margin-top: 18px; padding: 9px 10px; border: 1px solid #433a58; border-radius: 7px; color: #d7caff; background: #2d2938; text-align: left; font-size: 12px; font-weight: 700; }
+        .developer-open:hover { background: #393246; }
+        .developer-open[hidden] { display: none; }
+        .profile { position: relative; display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 11px 9px; border-top: 1px solid #2b2c32; background: #1a1b20; }
+        .avatar { display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: white; background: #7158a8; font-size: 14px; font-weight: 700; }
+        .avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+        .avatar.small { width: 31px; height: 31px; font-size: 12px; }
+        .profile-copy { min-width: 0; flex: 1; }
+        .profile-name { overflow: hidden; color: #f0eff4; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+        .profile-status { margin-top: 3px; color: var(--muted); font-size: 10px; text-transform: capitalize; }
+        .profile-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; border: 0; padding: 0; background: transparent; text-align: left; }
+        .status-control, .leave { display: grid; flex: 0 0 auto; place-items: center; width: 27px; height: 29px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; }
+        .status-control:hover, .leave:hover { background: #2c2d34; }
+        .status-dot { width: 11px; height: 11px; border: 2px solid #1a1b20; border-radius: 50%; background: #3fbf70; box-shadow: 0 0 0 1px #3fbf70; }
+        .status-dot[data-status="away"] { background: #f0b232; box-shadow: 0 0 0 1px #f0b232; }
+        .status-dot[data-status="busy"] { background: #f34f54; box-shadow: 0 0 0 1px #f34f54; }
+        .status-menu { position: absolute; z-index: 4; right: 8px; bottom: calc(100% - 4px); width: 180px; padding: 7px; border: 1px solid #383941; border-radius: 9px; background: #25262c; box-shadow: 0 12px 30px #0008; }
+        .status-menu[hidden] { display: none; }
+        .status-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 11px; border: 0; border-radius: 6px; background: transparent; text-align: left; font-size: 12px; }
+        .status-option:hover, .status-option[aria-checked="true"] { background: #34353c; }
+        .status-option .status-dot { width: 12px; height: 12px; border: 0; box-shadow: none; }
+        .chat { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--bg); }
+        .topbar { display: flex; align-items: center; gap: 11px; min-height: 64px; padding: 0 22px; border-bottom: 1px solid #292a31; box-shadow: 0 2px 8px #00000012; }
+        .topbar.channel-enter { animation: content-enter .32s cubic-bezier(.2,.8,.2,1) both; }
+        .topbar-hash { color: #a0a2ae; font-size: 23px; }
+        .topbar h1 { margin: 0; font-size: 15px; font-weight: 750; }
+        .topbar-topic { overflow: hidden; padding-left: 12px; border-left: 1px solid #393a42; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+        .message-scroll { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; padding: 20px 22px 14px; overscroll-behavior: contain; scrollbar-color: #3a3b43 transparent; }
+        .welcome { margin: auto 0 26px; padding: 20px 0 22px; border-bottom: 1px solid #303139; }
+        .welcome-mark { display: grid; place-items: center; width: 66px; height: 66px; margin-bottom: 17px; border-radius: 22px; color: #fff; background: #7359c8; font-size: 31px; }
+        .welcome h2 { margin: 0; font-size: 25px; letter-spacing: -.035em; }
+        .welcome p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+        .message-list { display: flex; flex-direction: column; gap: 18px; }
+        .message-enter { animation: content-enter .34s cubic-bezier(.2,.8,.2,1) var(--entrance-delay, 0ms) both; }
+        .message { display: flex; gap: 12px; min-width: 0; }
+        .message-content { min-width: 0; flex: 1; }
+        .message-meta { display: flex; align-items: baseline; gap: 8px; margin: 1px 0 4px; }
+        .message-author { color: #f2f0f7; font-size: 13px; font-weight: 700; }
+        .message-time { color: #858793; font-size: 10px; }
+        .bot-badge { padding: 2px 5px; border-radius: 4px; color: #eee8ff; background: #7254b2; font-size: 9px; font-weight: 750; text-transform: uppercase; }
+        .message-text { color: #d5d5dc; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+        .message.system { padding: 9px 12px; border: 1px solid #5a4828; border-radius: 8px; background: #28241b; }
+        .message.system .message-text { color: #e8cf9b; }
+        .composer-wrap { padding: 8px 22px 19px; }
+        .thinking { min-height: 18px; padding: 0 4px 6px; color: #c2b5ed; font-size: 11px; }
+        .thinking:empty { display: none; }
+        .composer { display: flex; align-items: flex-end; gap: 10px; padding: 10px 12px 10px 15px; border: 1px solid #363740; border-radius: 11px; background: #28292f; }
+        .composer:focus-within { border-color: #65539a; }
+        .composer textarea { display: block; min-height: 25px; max-height: 150px; flex: 1; resize: none; border: 0; outline: 0; color: #f0eff4; background: transparent; font-size: 13px; line-height: 1.5; }
+        .composer textarea::placeholder { color: #878995; }
+        .send { display: grid; place-items: center; width: 31px; height: 31px; border: 0; border-radius: 8px; color: #fff; background: #7359c8; font-size: 17px; }
+        .send:hover { background: #876ee0; }
+        .send:disabled { cursor: default; opacity: .5; }
+        .composer-help { margin: 8px 4px 0; color: #858793; font-size: 10px; }
+        .members { min-width: 0; overflow-y: auto; padding: 25px 14px; border-left: 1px solid #292a31; background: #1b1c21; }
+        .members h2 { margin: 0 0 12px 4px; color: #a0a2ae; font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+        .member-section-title { margin: 24px 0 9px; }
+        .member-list { display: flex; flex-direction: column; gap: 11px; }
+        .member { display: flex; align-items: center; gap: 9px; min-width: 0; border: 0; padding: 4px; border-radius: 7px; color: #d4d4da; background: transparent; text-align: left; font-size: 12px; }
+        .member:hover { background: #282930; }
+        .member-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .member-role { flex: 0 0 auto; padding: 2px 4px; border-radius: 4px; color: #d7caff; background: #3a304b; font-size: 8px; text-transform: uppercase; }
+        .member.bot-member { color: #d8cbff; }
+        .member.offline { color: #9c9eaa; opacity: .76; }
+        .member.offline .avatar { filter: saturate(.55); }
+        .online-dot { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: #4fb87a; }
+        .online-dot.offline-dot { background: #666873; box-shadow: inset 0 0 0 1px #848693; }
+        .online-dot.away { background: #f0b232; }
+        .online-dot.busy { background: #f34f54; }
+        .join-screen { position: fixed; z-index: 2; display: grid; place-items: center; inset: 0; overflow-y: auto; padding: 20px; background: radial-gradient(ellipse at top, #342852 0, #17181c 62%); }
+        .join-screen[hidden] { display: none; }
+        .join-card { width: min(400px, 100%); padding: 34px; border: 1px solid #41404d; border-radius: 18px; background: #202127; box-shadow: 0 22px 80px #0007; }
+        .join-brand { display: flex; align-items: center; gap: 11px; margin-bottom: 27px; }
+        .join-brand .brand-mark { width: 41px; height: 41px; border-radius: 14px; }
+        .join-brand strong { font-size: 17px; }
+        .join-card h1 { margin: 0 0 8px; font-size: 25px; letter-spacing: -.04em; }
+        .join-card > p { margin: 0 0 22px; color: #a6a7b1; font-size: 13px; line-height: 1.6; }
+        .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 22px; padding: 4px; border-radius: 9px; background: #191a1f; }
+        .auth-tab { padding: 9px; border: 0; border-radius: 6px; color: #a6a7b1; background: transparent; font-size: 12px; font-weight: 700; }
+        .auth-tab.active { color: #f2f0f7; background: #383443; }
+        .auth-fields { display: grid; gap: 14px; }
+        .join-card label { display: block; margin-bottom: 8px; color: #d7d5df; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .join-card input { width: 100%; padding: 12px; border: 1px solid #3a3b44; border-radius: 8px; outline: 0; color: #f2f0f7; background: #191a1f; font-size: 14px; }
+        .join-card input:focus { border-color: #8f75d4; }
+        .join-button { width: 100%; margin-top: 18px; padding: 12px; border: 0; border-radius: 8px; color: white; background: #7359c8; font-size: 13px; font-weight: 700; }
+        .join-button:hover { background: #876ee0; }
+        .join-error { min-height: 18px; margin-top: 12px; color: #ff9898; font-size: 12px; }
+        .toast { position: fixed; right: 18px; bottom: 18px; z-index: 3; max-width: min(360px, calc(100% - 36px)); padding: 12px 16px; border: 1px solid #5a4828; border-radius: 9px; color: #e8cf9b; background: #28241b; font-size: 12px; }
+        .toast[hidden] { display: none; }
+        .profile-dialog { width: min(420px, calc(100% - 32px)); max-width: 420px; max-height: 90vh; padding: 0; overflow-y: auto; border: 1px solid #41414b; border-radius: 15px; color: #e6e8ef; background: #222329; box-shadow: 0 22px 70px #000a; }
+        .profile-dialog::backdrop { background: #09090dcc; backdrop-filter: blur(3px); }
+        .profile-dialog[open] { animation: dialog-enter .2s ease both; }
+        .profile-card { overflow: hidden; border-radius: inherit; }
+        .profile-card.profile-enter { animation: content-enter .38s cubic-bezier(.2,.8,.2,1) both; }
+        .profile-banner { height: 86px; background: linear-gradient(130deg, #7359c8, #302443); }
+        .profile-card-body { padding: 0 22px 22px; }
+        .profile-card-head { display: flex; align-items: end; justify-content: space-between; margin-top: -34px; }
+        .profile-card-avatar { width: 72px; height: 72px; border: 5px solid #222329; font-size: 23px; }
+        .profile-card-name { margin-top: 13px; font-size: 20px; font-weight: 750; }
+        .profile-card-status { display: flex; align-items: center; gap: 8px; margin-top: 7px; color: #c0c1ca; font-size: 12px; text-transform: capitalize; }
+        .profile-card-bio { min-height: 50px; margin-top: 20px; color: #c6c6cf; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .profile-card-music { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding: 11px 12px; border: 1px solid #403853; border-radius: 9px; background: linear-gradient(110deg, #30283e, #25232d); }
+        .profile-music-icon { display: grid; flex: 0 0 auto; place-items: center; width: 32px; height: 32px; border-radius: 9px; color: #e7dcff; background: #57437d; font-size: 19px; }
+        .profile-music-status { min-width: 0; flex: 1; color: #e4dafa; font-size: 12px; font-weight: 650; }
+        .profile-music-toggle { min-width: 68px; padding: 7px 10px; border: 1px solid #5b4b78; border-radius: 7px; color: #f2edff; background: #403452; font-size: 11px; font-weight: 650; }
+        .profile-music-toggle:hover { background: #51416a; }
+        .profile-music-audio { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+        .profile-card-email { margin-top: 15px; padding-top: 14px; border-top: 1px solid #393a42; color: #999ba7; font-size: 11px; }
+        .profile-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
+        .profile-actions button, .profile-edit-form button { padding: 9px 13px; border: 0; border-radius: 7px; color: #eeeaf7; background: #393a43; font-size: 12px; font-weight: 650; }
+        .profile-actions .primary, .profile-edit-form .primary { background: #7359c8; }
+        .profile-edit-form { display: grid; gap: 13px; padding: 22px; }
+        .profile-edit-form.editor-enter { animation: editor-enter .3s cubic-bezier(.2,.8,.2,1) both; }
+        .profile-edit-title { font-size: 17px; font-weight: 750; }
+        .profile-edit-form label { display: block; margin-bottom: 7px; color: #c9c9d1; font-size: 11px; font-weight: 700; }
+        .profile-edit-form textarea { width: 100%; min-height: 92px; resize: vertical; padding: 10px; border: 1px solid #3d3e47; border-radius: 7px; outline: 0; color: #eeeaf7; background: #191a1f; font: inherit; font-size: 12px; }
+        .profile-edit-form textarea:focus { border-color: #8f75d4; }
+        .profile-music-block { display: grid; gap: 8px; }
+        .profile-music-block input[type="file"] { width: 100%; padding: 9px 10px; border: 1px solid #3d3e47; border-radius: 7px; color: #eaeaf3; background: #1b1b1f; }
+        .profile-music-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .profile-music-name { color: #c8cad7; font-size: 11px; }
+        .profile-music-remove { padding: 7px 10px; border: 1px solid #443d5b; border-radius: 7px; background: #2b2736; color: #efe6ff; }
+        .avatar-upload { display: flex; align-items: center; gap: 12px; }
+        .avatar-upload .avatar { width: 54px; height: 54px; font-size: 19px; }
+        .avatar-upload input { max-width: 220px; color: #c9c9d1; font-size: 11px; }
+        .profile-form-error { min-height: 16px; color: #ff9898; font-size: 11px; }
+        .profile-edit-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+        .admin-dialog { width: min(920px, calc(100% - 28px)); max-width: 920px; max-height: min(86vh, 800px); padding: 0; overflow: hidden; border: 1px solid #41414b; border-radius: 14px; color: #e6e8ef; background: #202127; box-shadow: 0 22px 70px #000a; }
+        .admin-dialog::backdrop { background: #09090dcc; backdrop-filter: blur(3px); }
+        .admin-shell { display: flex; max-height: min(86vh, 800px); flex-direction: column; }
+        .admin-header { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 18px 21px; border-bottom: 1px solid #383941; }
+        .admin-header h2 { margin: 0; font-size: 18px; }
+        .admin-header p { margin: 5px 0 0; color: #a6a7b1; font-size: 11px; }
+        .admin-header button { width: 32px; height: 32px; border: 0; border-radius: 7px; color: #c6c6cf; background: #33343b; font-size: 17px; }
+        .admin-list { display: grid; gap: 10px; overflow-y: auto; padding: 15px; }
+        .admin-account { display: grid; grid-template-columns: minmax(140px, 1.2fr) minmax(180px, 1fr) minmax(190px, 1.4fr); gap: 12px; align-items: center; padding: 13px; border: 1px solid #383941; border-radius: 10px; background: #25262c; }
+        .admin-person { display: flex; min-width: 0; align-items: center; gap: 9px; }
+        .admin-person .avatar { width: 34px; height: 34px; }
+        .admin-person-copy { min-width: 0; }
+        .admin-username { overflow: hidden; font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+        .admin-email { overflow: hidden; margin-top: 3px; color: #9c9eaa; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+        .admin-stats { color: #b7b8c1; font-size: 10px; line-height: 1.7; }
+        .admin-controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+        .admin-controls button, .admin-controls select { padding: 7px 8px; border: 1px solid #45464f; border-radius: 6px; color: #e4e2eb; background: #303138; font: inherit; font-size: 10px; }
+        .admin-controls button:hover { background: #42434d; }
+        .admin-controls .danger { border-color: #71434a; color: #ffb2b2; }
+        .admin-empty { padding: 25px; color: #a6a7b1; text-align: center; font-size: 13px; }
+        .admin-message { padding: 0 17px 12px; color: #ffb2b2; font-size: 11px; }
+        @media (max-width: 1050px) {
+            .app { grid-template-columns: 64px 210px minmax(0, 1fr); }
+            .members { display: none; }
+        }
+        @media (max-width: 650px) {
+            body { overflow: hidden; }
+            .app { grid-template-columns: 58px minmax(0, 1fr); }
+            .channels { display: none; }
+            .topbar { min-height: 58px; padding: 0 14px; }
+            .topbar-topic { display: none; }
+            .message-scroll { padding: 15px 14px 12px; }
+            .composer-wrap { padding: 7px 12px 13px; }
+            .welcome h2 { font-size: 22px; }
+            .join-card { padding: 27px 23px; }
+            .admin-account { grid-template-columns: minmax(0, 1fr); }
+            .admin-controls { justify-content: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <div class="pointer-glow" aria-hidden="true"></div>
+    <main class="app">
+        <nav class="servers" aria-label="Servers">
+            <div class="brand-mark" aria-label="Orbit">o</div>
+            <div class="server-divider"></div>
+            <button class="server-mark active" type="button" aria-label="Orbit community">✦</button>
+        </nav>
+        <aside class="channels">
+            <div class="workspace-name"><span>Orbit community</span><span aria-hidden="true">⌄</span></div>
+            <div class="channel-groups">
+                <div class="group-title"><span>Text channels</span></div>
+                <button class="channel-link active" data-channel="general" type="button"><span>#</span>general</button>
+                <button class="channel-link" data-channel="ai-lab" type="button"><span>#</span>ai-lab</button>
+                <button class="channel-link" data-channel="off-topic" type="button"><span>#</span>off-topic</button>
+                <button class="developer-open" id="developer-open" type="button" hidden>⚙ Developer tools</button>
+                <section class="dm-section" aria-labelledby="dm-heading">
+                    <h2 class="dm-section-title" id="dm-heading">Direct messages</h2>
+                    <div class="dm-list" id="dm-list"><div class="dm-empty">No conversations yet.</div></div>
+                </section>
+            </div>
+            <div class="profile">
+                <button class="profile-open" id="profile-open" type="button" aria-label="View your profile">
+                    <div class="avatar small" id="profile-avatar">?</div>
+                    <div class="profile-copy">
+                        <div class="profile-name" id="profile-name">Guest</div>
+                        <div class="profile-status" id="profile-status">Online</div>
+                    </div>
+                </button>
+                <button class="status-control" id="status-control" type="button" aria-label="Change status" aria-haspopup="true" aria-expanded="false">
+                    <span class="status-dot" id="current-status-dot" data-status="online"></span>
+                </button>
+                <button class="leave" id="leave" type="button" title="Sign out" aria-label="Sign out">↪</button>
+                <div class="status-menu" id="status-menu" role="menu" aria-label="Set your status" hidden>
+                    <button class="status-option" data-status="online" type="button" role="menuitemradio"><span class="status-dot" data-status="online"></span>Online</button>
+                    <button class="status-option" data-status="away" type="button" role="menuitemradio"><span class="status-dot" data-status="away"></span>Away</button>
+                    <button class="status-option" data-status="busy" type="button" role="menuitemradio"><span class="status-dot" data-status="busy"></span>Busy</button>
+                </div>
+            </div>
+        </aside>
+        <section class="chat" aria-label="Chat">
+            <header class="topbar">
+                <span class="topbar-hash" aria-hidden="true">#</span>
+                <h1 id="channel-name">general</h1>
+                <span class="topbar-topic" id="channel-topic">The place for everyday conversation.</span>
+            </header>
+            <div class="message-scroll" id="message-scroll">
+                <section class="welcome">
+                    <div class="welcome-mark" aria-hidden="true">✦</div>
+                    <h2 id="welcome-title">Welcome to #general</h2>
+                    <p>This is the beginning of the channel. Say hello, or mention <strong>@bot</strong> to chat with Orbit, the AI bot.</p>
+                </section>
+                <div class="message-list" id="message-list" aria-live="polite"></div>
+            </div>
+            <div class="composer-wrap">
+                <div class="thinking" id="thinking" role="status"></div>
+                <form class="composer" id="message-form">
+                    <textarea id="message-input" rows="1" maxlength="1000" placeholder="Message #general" aria-label="Write a message"></textarea>
+                    <button class="send" id="send" type="submit" aria-label="Send message">↑</button>
+                </form>
+                <p class="composer-help">Enter to send · Shift + Enter for a new line · mention @bot for a reply</p>
+            </div>
+        </section>
+        <aside class="members">
+            <h2 id="member-heading">Online — 0</h2>
+            <div class="member-list" id="member-list"></div>
+            <h2 class="member-section-title" id="offline-heading">Offline — 0</h2>
+            <div class="offline-list" id="offline-list"></div>
+        </aside>
+    </main>
+
+    <section class="join-screen" id="join-screen" aria-labelledby="join-title">
+        <form class="join-card" id="auth-form">
+            <div class="join-brand"><div class="brand-mark">o</div><strong>Orbit</strong></div>
+            <h1 id="join-title">Welcome back.</h1>
+            <p id="auth-description">Sign in to join the conversation.</p>
+            <div class="auth-tabs" role="tablist" aria-label="Account access">
+                <button class="auth-tab active" id="login-tab" type="button" role="tab" aria-selected="true">Sign in</button>
+                <button class="auth-tab" id="register-tab" type="button" role="tab" aria-selected="false">Create account</button>
+            </div>
+            <div class="auth-fields">
+                <div id="username-field" hidden>
+                    <label for="auth-username">Username</label>
+                    <input id="auth-username" maxlength="24" autocomplete="username" placeholder="Choose a username">
+                </div>
+                <div id="email-field" hidden>
+                    <label for="auth-email">Email</label>
+                    <input id="auth-email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com">
+                </div>
+                <div id="identifier-field">
+                    <label for="auth-identifier">Username or email</label>
+                    <input id="auth-identifier" autocomplete="username" placeholder="Your username or email">
+                </div>
+                <div>
+                    <label for="auth-password">Password</label>
+                    <input id="auth-password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="Enter your password" required>
+                </div>
+            </div>
+            <button class="join-button" id="auth-submit" type="submit">Sign in</button>
+            <div class="join-error" id="join-error" role="alert"></div>
+        </form>
+    </section>
+    <dialog class="profile-dialog" id="profile-dialog" aria-label="User profile">
+        <div id="profile-dialog-content"></div>
+    </dialog>
+    <dialog class="admin-dialog" id="admin-dialog" aria-labelledby="admin-title">
+        <div class="admin-shell">
+            <header class="admin-header">
+                <div><h2 id="admin-title">Developer tools</h2><p>Manage accounts, ranks, safety, and activity.</p></div>
+                <button id="admin-close" type="button" aria-label="Close developer tools">×</button>
+            </header>
+            <div class="admin-list" id="admin-list"></div>
+            <div class="admin-message" id="admin-message" role="status"></div>
+        </div>
+    </dialog>
+    <div class="toast" id="toast" role="status" hidden></div>
+
+    <script>
+        const channelDetails = {
+            general: { name: 'general', topic: 'The place for everyday conversation.' },
+            'ai-lab': { name: 'ai-lab', topic: 'Ask the bot anything. Start a message with @bot.' },
+            'off-topic': { name: 'off-topic', topic: 'Games, music, and everything else.' }
+        };
+        const appState = { user: null, profile: null, memberProfiles: new Map(), channel: 'general', activeDm: null, dmSeen: new Map(), dmUnread: new Set(), dmsInitialized: false, dmPolling: false, pingAudioContext: null, lastMessageId: 0, polling: false, channelLoading: false, botPending: 0, authMode: 'login' };
+        const messageList = document.getElementById('message-list');
+        const messageScroll = document.getElementById('message-scroll');
+        const messageInput = document.getElementById('message-input');
+        const joinScreen = document.getElementById('join-screen');
+        const joinError = document.getElementById('join-error');
+        const toast = document.getElementById('toast');
+        let toastTimeout;
+
+        const pointerGlow = document.querySelector('.pointer-glow');
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let pointerFrame = 0;
+        let pointerPosition;
+
+        document.addEventListener('pointermove', event => {
+            if (event.pointerType !== 'mouse' || prefersReducedMotion.matches) return;
+            pointerPosition = { x: event.clientX, y: event.clientY };
+            if (!pointerFrame) {
+                pointerFrame = requestAnimationFrame(() => {
+                    document.body.style.setProperty('--pointer-x', `${pointerPosition.x}px`);
+                    document.body.style.setProperty('--pointer-y', `${pointerPosition.y}px`);
+                    pointerGlow.classList.add('visible');
+                    pointerFrame = 0;
+                });
+            }
+        }, { passive: true });
+
+        document.addEventListener('pointerdown', preparePingAudio, { once: true });
+        document.addEventListener('keydown', preparePingAudio, { once: true });
+
+        document.addEventListener('pointerout', event => {
+            if (event.relatedTarget === null) pointerGlow.classList.remove('visible');
+        });
+
+        document.addEventListener('pointerdown', event => {
+            if (prefersReducedMotion.matches || event.pointerType === 'touch') return;
+            const button = event.target.closest('button:not(:disabled)');
+            if (!button) return;
+            const bounds = button.getBoundingClientRect();
+            const size = Math.max(bounds.width, bounds.height) * 1.8;
+            const ripple = document.createElement('span');
+            ripple.className = 'click-ripple';
+            ripple.style.setProperty('--ripple-size', `${size}px`);
+            ripple.style.setProperty('--ripple-x', `${event.clientX - bounds.left - size / 2}px`);
+            ripple.style.setProperty('--ripple-y', `${event.clientY - bounds.top - size / 2}px`);
+            button.append(ripple);
+            ripple.addEventListener('animationend', () => ripple.remove(), { once: true });
+        });
+
+        prefersReducedMotion.addEventListener('change', event => {
+            if (event.matches) pointerGlow.classList.remove('visible');
+        });
+
+        async function request(url, options = {}) {
+            const response = await fetch(url, {
+                cache: 'no-store',
+                ...options,
+                headers: { 'Content-Type': 'application/json', ...options.headers }
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || `Request failed (${response.status}).`);
+            return result;
+        }
+
+        function initials(name) {
+            return Array.from(name.trim())[0]?.toUpperCase() || '?';
+        }
+
+        function colorFor(name) {
+            const colors = ['#7057aa', '#557e9c', '#a25f72', '#64866c', '#a47749', '#7662a6'];
+            let hash = 0;
+            for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+            return colors[hash % colors.length];
+        }
+
+        function replayEntrance(element, className) {
+            element.classList.remove(className);
+            void element.offsetWidth;
+            element.classList.add(className);
+        }
+
+        function preparePingAudio() {
+            if (appState.pingAudioContext || !window.AudioContext) return;
+            appState.pingAudioContext = new AudioContext();
+            appState.pingAudioContext.resume().catch(error => {
+                console.warn(`Could not enable direct message sounds: ${error.message}`);
+            });
+        }
+
+        function playMessagePing() {
+            const audioContext = appState.pingAudioContext;
+            if (!audioContext || audioContext.state !== 'running') return;
+            const oscillator = audioContext.createOscillator();
+            const volume = audioContext.createGain();
+            const startAt = audioContext.currentTime;
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, startAt);
+            oscillator.frequency.setValueAtTime(1174.66, startAt + 0.09);
+            volume.gain.setValueAtTime(0.0001, startAt);
+            volume.gain.exponentialRampToValueAtTime(0.12, startAt + 0.015);
+            volume.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.32);
+            oscillator.connect(volume);
+            volume.connect(audioContext.destination);
+            oscillator.start(startAt);
+            oscillator.stop(startAt + 0.33);
+        }
+
+        function showToast(message) {
+            toast.textContent = message;
+            toast.hidden = false;
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => { toast.hidden = true; }, 5500);
+        }
+
+        function setAvatar(element, name, picture) {
+            element.replaceChildren();
+            if (picture) {
+                const image = document.createElement('img');
+                image.src = picture;
+                image.alt = '';
+                element.append(image);
+            } else {
+                element.textContent = initials(name);
+                element.style.background = colorFor(name);
+            }
+        }
+
+        function updateOwnProfile(profile) {
+            appState.profile = profile;
+            const avatar = document.getElementById('profile-avatar');
+            setAvatar(avatar, profile.username, profile.avatar);
+            document.getElementById('profile-name').textContent = profile.username;
+            document.getElementById('profile-status').textContent = profile.status;
+            document.getElementById('current-status-dot').dataset.status = profile.status;
+            statusMenu.querySelectorAll('[data-status]').forEach(item => {
+                item.setAttribute('aria-checked', String(item.dataset.status === profile.status));
+            });
+            appState.memberProfiles.set(profile.username.toLowerCase(), profile);
+            document.getElementById('developer-open').hidden = profile.role !== 'owner';
+        }
+
+        function setUser(user) {
+            appState.user = user;
+            joinScreen.hidden = Boolean(user);
+            if (user) {
+                document.getElementById('profile-name').textContent = user.name;
+                const avatar = document.getElementById('profile-avatar');
+                setAvatar(avatar, user.name, null);
+                messageInput.focus();
+                loadChannel();
+                refreshOwnProfile();
+                refreshUsers();
+                refreshDirectMessages();
+            } else {
+                appState.profile = null;
+                appState.activeDm = null;
+                appState.dmSeen.clear();
+                appState.dmUnread.clear();
+                appState.dmsInitialized = false;
+                messageList.replaceChildren();
+                document.getElementById('member-list').replaceChildren();
+                document.getElementById('offline-list').replaceChildren();
+                document.getElementById('dm-list').replaceChildren();
+            }
+        }
+
+        function formatTime(value) {
+            return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value));
+        }
+
+        function appendMessage(message) {
+            const atBottom = messageScroll.scrollHeight - messageScroll.scrollTop - messageScroll.clientHeight < 100;
+            const row = document.createElement('article');
+            row.className = `message message-enter${message.kind === 'system' ? ' system' : ''}`;
+            row.style.setProperty('--entrance-delay', `${Math.min(messageList.children.length, 7) * 35}ms`);
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            const authorProfile = appState.memberProfiles.get(message.author.toLowerCase());
+            setAvatar(avatar, message.author, authorProfile?.avatar || null);
+            if (message.kind === 'bot') avatar.style.background = '#7055b0';
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            const meta = document.createElement('div');
+            meta.className = 'message-meta';
+            const author = document.createElement('span');
+            author.className = 'message-author';
+            author.textContent = message.author;
+            const time = document.createElement('time');
+            time.className = 'message-time';
+            time.dateTime = message.createdAt;
+            time.textContent = formatTime(message.createdAt);
+            meta.append(author);
+            if (message.kind === 'bot') {
+                const badge = document.createElement('span');
+                badge.className = 'bot-badge';
+                badge.textContent = 'Bot';
+                meta.append(badge);
+            }
+            meta.append(time);
+            const text = document.createElement('div');
+            text.className = 'message-text';
+            text.textContent = message.content;
+            content.append(meta, text);
+            row.append(avatar, content);
+            messageList.append(row);
+            appState.lastMessageId = Math.max(appState.lastMessageId, message.id);
+            if (message.kind === 'bot' || message.kind === 'system') {
+                appState.botPending = Math.max(0, appState.botPending - 1);
+                updateThinking();
+            }
+            if (atBottom) messageScroll.scrollTop = messageScroll.scrollHeight;
+        }
+
+        function updateThinking() {
+            document.getElementById('thinking').textContent = appState.botPending
+                ? 'Orbit is thinking…'
+                : '';
+        }
+
+        async function loadChannel() {
+            const channelId = appState.channel;
+            appState.activeDm = null;
+            appState.channelLoading = true;
+            appState.lastMessageId = 0;
+            appState.botPending = 0;
+            messageList.replaceChildren();
+            updateThinking();
+            const channel = channelDetails[appState.channel];
+            replayEntrance(document.querySelector('.topbar'), 'channel-enter');
+            document.querySelector('.topbar-hash').textContent = '#';
+            document.getElementById('channel-name').textContent = channel.name;
+            document.getElementById('channel-topic').textContent = channel.topic;
+            document.getElementById('welcome-title').textContent = `Welcome to #${channel.name}`;
+            document.querySelector('.welcome').hidden = false;
+            messageInput.placeholder = `Message #${channel.name}`;
+            document.querySelectorAll('.dm-link').forEach(link => link.classList.remove('active'));
+            document.querySelectorAll('.channel-link').forEach(link => {
+                link.classList.toggle('active', link.dataset.channel === appState.channel);
+            });
+            try {
+                const result = await request(`/api/messages?channel=${encodeURIComponent(channelId)}`);
+                if (appState.channel !== channelId) return;
+                result.messages.forEach(appendMessage);
+                replayEntrance(document.querySelector('.welcome'), 'channel-enter');
+                messageScroll.scrollTop = messageScroll.scrollHeight;
+            } catch (error) {
+                showToast(error.message);
+            } finally {
+                if (appState.channel === channelId) appState.channelLoading = false;
+            }
+        }
+
+        async function pollMessages() {
+            if (!appState.user || appState.polling || appState.channelLoading) return;
+            appState.polling = true;
+            const channelId = appState.channel;
+            const directMessageUser = appState.activeDm;
+            try {
+                const url = directMessageUser
+                    ? `/api/dms/${encodeURIComponent(directMessageUser)}?after=${appState.lastMessageId}`
+                    : `/api/messages?channel=${encodeURIComponent(channelId)}&after=${appState.lastMessageId}`;
+                const result = await request(url);
+                if (directMessageUser && appState.activeDm?.toLowerCase() === directMessageUser.toLowerCase()) {
+                    result.messages.forEach(appendMessage);
+                    for (const message of result.messages) {
+                        if (message.author.toLowerCase() !== appState.user.name.toLowerCase()) {
+                            appState.dmSeen.set(directMessageUser.toLowerCase(), message.id);
+                            appState.dmUnread.delete(directMessageUser.toLowerCase());
+                        }
+                    }
+                    if (result.messages.length) refreshDirectMessages();
+                } else if (!directMessageUser && appState.channel === channelId) {
+                    result.messages.forEach(appendMessage);
+                }
+            } catch (error) {
+                if (/Please sign in/.test(error.message)) setUser(null);
+            } finally {
+                appState.polling = false;
+            }
+        }
+
+        async function refreshUsers() {
+            if (!appState.user) return;
+            try {
+                const result = await request('/api/users');
+                const users = [{ name: 'Orbit' }, ...result.users]
+                    .map(user => ({ ...user, username: user.username || user.name }))
+                    .sort((a, b) => a.username.localeCompare(b.username));
+                const offlineUsers = result.offlineUsers || [];
+                appState.memberProfiles = new Map([...users, ...offlineUsers].map(user => [user.username.toLowerCase(), user]));
+                document.getElementById('member-heading').textContent = `Online — ${users.length}`;
+                document.getElementById('offline-heading').textContent = `Offline — ${offlineUsers.length}`;
+                const renderMember = (user, offline = false) => {
+                    const row = document.createElement('button');
+                    row.className = `member${user.name === 'Orbit' ? ' bot-member' : ''}${offline ? ' offline' : ''}`;
+                    row.type = 'button';
+                    row.setAttribute('aria-label', `View ${user.username}'s profile`);
+                    row.dataset.profile = user.username;
+                    const avatar = document.createElement('span');
+                    avatar.className = 'avatar small';
+                    setAvatar(avatar, user.username, user.avatar);
+                    const name = document.createElement('span');
+                    name.className = 'member-name';
+                    name.textContent = user.username;
+                    const rank = document.createElement('span');
+                    rank.className = 'member-role';
+                    rank.textContent = user.role === 'owner' ? 'owner' : user.role === 'admin' ? 'admin' : user.role === 'moderator' ? 'mod' : '';
+                    const dot = document.createElement('span');
+                    dot.className = offline ? 'online-dot offline-dot' : `online-dot${user.status === 'online' ? '' : ` ${user.status}`}`;
+                    row.append(avatar, name);
+                    if (rank.textContent) row.append(rank);
+                    row.append(dot);
+                    return row;
+                };
+                const list = document.getElementById('member-list');
+                list.replaceChildren(...users.map(user => renderMember(user)));
+                const offlineList = document.getElementById('offline-list');
+                offlineList.replaceChildren(...offlineUsers.map(user => renderMember(user, true)));
+            } catch (error) {
+                showToast(error.message);
+            }
+        }
+
+        async function refreshDirectMessages() {
+            if (!appState.user || appState.dmPolling) return;
+            appState.dmPolling = true;
+            try {
+                const result = await request('/api/dms');
+                const conversations = result.conversations || [];
+                const list = document.getElementById('dm-list');
+                list.replaceChildren();
+                if (!conversations.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'dm-empty';
+                    empty.textContent = 'No conversations yet.';
+                    list.append(empty);
+                }
+                for (const conversation of conversations) {
+                    const userId = conversation.username.toLowerCase();
+                    const incomingId = conversation.latestIncomingMessageId || 0;
+                    if (!appState.dmsInitialized) {
+                        appState.dmSeen.set(userId, incomingId);
+                    } else if (incomingId > (appState.dmSeen.get(userId) || 0)) {
+                        if (appState.activeDm?.toLowerCase() === userId) {
+                            appState.dmSeen.set(userId, incomingId);
+                            appState.dmUnread.delete(userId);
+                        } else {
+                            appState.dmUnread.add(userId);
+                            playMessagePing();
+                        }
+                    }
+                    const link = document.createElement('button');
+                    link.type = 'button';
+                    link.className = `dm-link${appState.activeDm?.toLowerCase() === userId ? ' active' : ''}`;
+                    link.dataset.dm = conversation.username;
+                    link.setAttribute('aria-label', `Open direct message with ${conversation.username}`);
+                    const avatar = document.createElement('span');
+                    avatar.className = 'avatar';
+                    setAvatar(avatar, conversation.username, conversation.avatar);
+                    const name = document.createElement('span');
+                    name.className = 'dm-link-name';
+                    name.textContent = conversation.username;
+                    link.append(avatar, name);
+                    if (appState.dmUnread.has(userId)) {
+                        const unread = document.createElement('span');
+                        unread.className = 'dm-unread';
+                        unread.setAttribute('aria-label', 'Unread message');
+                        link.append(unread);
+                    } else {
+                        const preview = document.createElement('span');
+                        preview.className = 'dm-preview';
+                        preview.textContent = conversation.latestMessage.content;
+                        link.append(preview);
+                    }
+                    list.append(link);
+                }
+                appState.dmsInitialized = true;
+            } catch (error) {
+                showToast(error.message);
+            } finally {
+                appState.dmPolling = false;
+            }
+        }
+
+        async function loadDirectMessage(username) {
+            const userId = username.toLowerCase();
+            appState.activeDm = username;
+            appState.channelLoading = true;
+            appState.lastMessageId = 0;
+            appState.botPending = 0;
+            messageList.replaceChildren();
+            updateThinking();
+            document.querySelector('.welcome').hidden = true;
+            document.querySelector('.topbar-hash').textContent = '@';
+            document.getElementById('channel-name').textContent = username;
+            document.getElementById('channel-topic').textContent = 'Direct message';
+            messageInput.placeholder = `Message @${username}`;
+            document.querySelectorAll('.channel-link').forEach(link => link.classList.remove('active'));
+            document.querySelectorAll('.dm-link').forEach(link => {
+                link.classList.toggle('active', link.dataset.dm.toLowerCase() === userId);
+            });
+            appState.dmUnread.delete(userId);
+            try {
+                const result = await request(`/api/dms/${encodeURIComponent(username)}`);
+                if (appState.activeDm?.toLowerCase() !== userId) return;
+                result.messages.forEach(appendMessage);
+                const lastIncomingId = result.messages
+                    .filter(message => message.author.toLowerCase() !== appState.user.name.toLowerCase())
+                    .reduce((latest, message) => Math.max(latest, message.id), 0);
+                if (lastIncomingId) appState.dmSeen.set(userId, lastIncomingId);
+                messageScroll.scrollTop = messageScroll.scrollHeight;
+                refreshDirectMessages();
+            } catch (error) {
+                appState.activeDm = null;
+                showToast(error.message);
+            } finally {
+                appState.channelLoading = false;
+            }
+        }
+
+        document.querySelectorAll('.channel-link').forEach(link => {
+            link.addEventListener('click', () => {
+                appState.channel = link.dataset.channel;
+                loadChannel();
+            });
+        });
+        document.getElementById('dm-list').addEventListener('click', event => {
+            const link = event.target.closest('[data-dm]');
+            if (link) loadDirectMessage(link.dataset.dm);
+        });
+
+        async function refreshOwnProfile() {
+            try {
+                const result = await request('/api/profile/me');
+                updateOwnProfile(result.profile);
+            } catch (error) {
+                showToast(error.message);
+            }
+        }
+
+        async function openProfile(username) {
+            try {
+                const result = username.toLowerCase() === appState.user.name.toLowerCase() && appState.profile
+                    ? { profile: appState.profile }
+                    : await request(`/api/profile/${encodeURIComponent(username)}`).then(data => data);
+                renderProfile(result.profile, username);
+                document.getElementById('profile-dialog').showModal();
+            } catch (error) {
+                showToast(error.message);
+            }
+        }
+
+        function stopProfileMusic() {
+            const audio = document.querySelector('#profile-dialog audio');
+            if (audio) {
+                audio.pause();
+                audio.currentTime = 0;
+            }
+        }
+
+        function renderProfile(profile, requestedUsername) {
+            stopProfileMusic();
+            const content = document.getElementById('profile-dialog-content');
+            const ownProfile = profile.username.toLowerCase() === appState.user.name.toLowerCase();
+            const owner = appState.profile?.role === 'owner';
+            content.replaceChildren();
+            const card = document.createElement('section');
+            card.className = 'profile-card profile-enter';
+            const banner = document.createElement('div');
+            banner.className = 'profile-banner';
+            const body = document.createElement('div');
+            body.className = 'profile-card-body';
+            const head = document.createElement('div');
+            head.className = 'profile-card-head';
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar profile-card-avatar';
+            setAvatar(avatar, profile.username, profile.avatar);
+            head.append(avatar);
+            if (ownProfile || owner) {
+                const edit = document.createElement('button');
+                edit.className = 'primary';
+                edit.type = 'button';
+                edit.textContent = 'Edit profile';
+                edit.addEventListener('click', () => renderProfileEditor(profile, !ownProfile));
+                head.append(edit);
+            }
+            const name = document.createElement('div');
+            name.className = 'profile-card-name';
+            name.textContent = profile.username || requestedUsername;
+            const status = document.createElement('div');
+            status.className = 'profile-card-status';
+            const dot = document.createElement('span');
+            dot.className = `online-dot${profile.status === 'online' ? '' : ` ${profile.status}`}`;
+            const statusText = document.createElement('span');
+            statusText.textContent = profile.status;
+            status.append(dot, statusText);
+            const bio = document.createElement('div');
+            bio.className = 'profile-card-bio';
+            bio.textContent = profile.bio || 'No bio yet.';
+            body.append(head, name, status, bio);
+            if (profile.music) {
+                const musicWrap = document.createElement('div');
+                musicWrap.className = 'profile-card-music';
+                const musicIcon = document.createElement('span');
+                musicIcon.className = 'profile-music-icon';
+                musicIcon.setAttribute('aria-hidden', 'true');
+                musicIcon.textContent = '♫';
+                const musicStatus = document.createElement('span');
+                musicStatus.className = 'profile-music-status';
+                musicStatus.setAttribute('aria-live', 'polite');
+                musicStatus.textContent = 'Tap play to start music';
+                const toggle = document.createElement('button');
+                toggle.className = 'profile-music-toggle';
+                toggle.type = 'button';
+                const audio = document.createElement('audio');
+                audio.preload = 'auto';
+                audio.src = profile.music;
+                audio.className = 'profile-music-audio';
+                audio.setAttribute('playsinline', 'true');
+                let hasPlayed = false;
+                const updateMusicControl = () => {
+                    const playing = !audio.paused && !audio.ended;
+                    toggle.textContent = playing ? 'Pause' : 'Play';
+                    toggle.setAttribute('aria-label', playing ? 'Pause profile music' : 'Play profile music');
+                };
+                audio.addEventListener('playing', () => {
+                    hasPlayed = true;
+                    musicStatus.textContent = 'Playing music';
+                    updateMusicControl();
+                });
+                audio.addEventListener('pause', () => {
+                    if (hasPlayed && !audio.ended) musicStatus.textContent = 'Music paused';
+                    updateMusicControl();
+                });
+                audio.addEventListener('ended', () => {
+                    musicStatus.textContent = 'Music finished';
+                    updateMusicControl();
+                });
+                audio.addEventListener('error', () => {
+                    musicStatus.textContent = 'This audio file can’t be played here';
+                    toggle.disabled = true;
+                });
+                toggle.addEventListener('click', () => {
+                    if (audio.paused || audio.ended) {
+                        musicStatus.textContent = 'Starting music…';
+                        audio.play().catch(error => {
+                            if (error.name === 'NotAllowedError') {
+                                musicStatus.textContent = 'Tap play to start music';
+                            } else {
+                                musicStatus.textContent = 'This audio file can’t be played here';
+                                toggle.disabled = true;
+                            }
+                        });
+                    } else {
+                        audio.pause();
+                    }
+                });
+                updateMusicControl();
+                musicWrap.append(musicIcon, musicStatus, toggle, audio);
+                body.append(musicWrap);
+                audio.play().catch(error => {
+                    if (error.name === 'NotAllowedError') {
+                        musicStatus.textContent = 'Tap play to start music';
+                        updateMusicControl();
+                    } else {
+                        musicStatus.textContent = 'This audio file can’t be played here';
+                        toggle.disabled = true;
+                    }
+                });
+            }
+            const actions = document.createElement('div');
+            actions.className = 'profile-actions';
+            if (!ownProfile) {
+                const message = document.createElement('button');
+                message.type = 'button';
+                message.className = 'primary';
+                message.textContent = 'Message';
+                message.addEventListener('click', () => {
+                    document.getElementById('profile-dialog').close();
+                    loadDirectMessage(profile.username);
+                });
+                actions.append(message);
+            }
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.textContent = 'Close';
+            close.addEventListener('click', () => document.getElementById('profile-dialog').close());
+            actions.append(close);
+            body.append(actions);
+            card.append(banner, body);
+            content.append(card);
+        }
+
+        function renderProfileEditor(profile, adminEditing = false) {
+            stopProfileMusic();
+            const content = document.getElementById('profile-dialog-content');
+            content.replaceChildren();
+            const form = document.createElement('form');
+            form.className = 'profile-edit-form editor-enter';
+            const title = document.createElement('div');
+            title.className = 'profile-edit-title';
+            title.textContent = adminEditing ? `Edit ${profile.username}'s profile` : 'Edit your profile';
+            const avatarLabel = document.createElement('label');
+            avatarLabel.textContent = 'Profile picture';
+            const avatarRow = document.createElement('div');
+            avatarRow.className = 'avatar-upload';
+            const preview = document.createElement('div');
+            preview.className = 'avatar';
+            setAvatar(preview, profile.username, profile.avatar);
+            const file = document.createElement('input');
+            file.type = 'file';
+            file.accept = 'image/png,image/jpeg,image/webp';
+            file.setAttribute('aria-label', 'Choose a profile picture');
+            let selectedAvatar = profile.avatar;
+            file.addEventListener('change', async () => {
+                const picked = file.files[0];
+                if (!picked) return;
+                try {
+                    if (!['image/png', 'image/jpeg', 'image/webp'].includes(picked.type)) {
+                        throw new Error('Choose a PNG, JPEG, or WebP image.');
+                    }
+                    if (picked.size > 8 * 1024 * 1024) throw new Error('Choose an image smaller than 8 MB.');
+                    const bitmap = await createImageBitmap(picked);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 256;
+                    canvas.height = 256;
+                    const context = canvas.getContext('2d');
+                    const crop = Math.min(bitmap.width, bitmap.height);
+                    context.drawImage(bitmap, (bitmap.width - crop) / 2, (bitmap.height - crop) / 2, crop, crop, 0, 0, 256, 256);
+                    bitmap.close();
+                    selectedAvatar = canvas.toDataURL('image/webp', 0.82);
+                    setAvatar(preview, profile.username, selectedAvatar);
+                    error.textContent = '';
+                } catch (failure) {
+                    error.textContent = failure.message || 'Could not read that image.';
+                }
+            });
+            avatarRow.append(preview, file);
+            avatarLabel.append(avatarRow);
+            const musicLabel = document.createElement('label');
+            musicLabel.textContent = 'Profile music';
+            const musicBlock = document.createElement('div');
+            musicBlock.className = 'profile-music-block';
+            const musicFile = document.createElement('input');
+            musicFile.type = 'file';
+            musicFile.accept = 'audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/webm,audio/m4a,audio/aac';
+            musicFile.setAttribute('aria-label', 'Choose a profile music file');
+            let selectedMusic = profile.music || null;
+            const musicName = document.createElement('div');
+            musicName.className = 'profile-music-name';
+            musicName.textContent = selectedMusic ? 'Music selected' : 'No music selected';
+            musicFile.addEventListener('change', async () => {
+                const picked = musicFile.files[0];
+                if (!picked) return;
+                try {
+                    const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/m4a', 'audio/aac', 'audio/x-m4a'];
+                    if (!allowedTypes.includes(picked.type) && !picked.name.match(/\.(mp3|wav|ogg|webm|m4a|aac|mpeg)$/i)) {
+                        throw new Error('Choose an MP3, WAV, OGG, WebM, M4A, AAC, or MPEG audio file.');
+                    }
+                    if (picked.size > 6 * 1024 * 1024) throw new Error('Choose a music file up to 6 MB.');
+                    const reader = new FileReader();
+                    const dataUrl = await new Promise((resolve, reject) => {
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = () => reject(new Error('Could not read that music file.'));
+                        reader.readAsDataURL(picked);
+                    });
+                    selectedMusic = dataUrl;
+                    musicName.textContent = 'Music selected';
+                    removeMusic.disabled = false;
+                    error.textContent = '';
+                } catch (failure) {
+                    error.textContent = failure.message || 'Could not read that music file.';
+                }
+            });
+            const removeMusic = document.createElement('button');
+            removeMusic.type = 'button';
+            removeMusic.className = 'profile-music-remove';
+            removeMusic.textContent = 'Remove music';
+            removeMusic.disabled = !selectedMusic;
+            removeMusic.addEventListener('click', () => {
+                selectedMusic = null;
+                musicFile.value = '';
+                musicName.textContent = 'No music selected';
+                removeMusic.disabled = true;
+            });
+            musicBlock.append(musicFile, musicName, removeMusic);
+            musicLabel.append(musicBlock);
+            const bioLabel = document.createElement('label');
+            bioLabel.textContent = 'Bio';
+            const bio = document.createElement('textarea');
+            bio.maxLength = 160;
+            bio.placeholder = 'Tell the community a little about yourself';
+            bio.value = profile.bio || '';
+            bioLabel.append(bio);
+            const error = document.createElement('div');
+            error.className = 'profile-form-error';
+            const buttons = document.createElement('div');
+            buttons.className = 'profile-edit-buttons';
+            const cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.textContent = 'Cancel';
+            cancel.addEventListener('click', () => {
+                if (adminEditing) {
+                    document.getElementById('profile-dialog').close();
+                    openAdminPanel();
+                } else {
+                    renderProfile(profile, profile.username);
+                }
+            });
+            const save = document.createElement('button');
+            save.className = 'primary';
+            save.type = 'submit';
+            save.textContent = 'Save changes';
+            buttons.append(cancel, save);
+            form.append(title, avatarLabel, musicLabel, bioLabel, error, buttons);
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                save.disabled = true;
+                try {
+                    if (adminEditing) {
+                        await adminAction(profile.username, 'profile', {
+                            bio: bio.value,
+                            avatar: selectedAvatar,
+                            music: selectedMusic,
+                            status: profile.status
+                        }, false);
+                        document.getElementById('profile-dialog').close();
+                        openAdminPanel();
+                    } else {
+                        const result = await request('/api/profile/me', {
+                            method: 'PUT',
+                            body: JSON.stringify({ bio: bio.value, avatar: selectedAvatar, music: selectedMusic, status: appState.profile.status })
+                        });
+                        updateOwnProfile(result.profile);
+                        renderProfile(result.profile, result.profile.username);
+                        refreshUsers();
+                    }
+                } catch (failure) {
+                    error.textContent = failure.message;
+                } finally {
+                    save.disabled = false;
+                }
+            });
+            content.append(form);
+        }
+
+        function formatActivity(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m`;
+            const hours = Math.floor(minutes / 60);
+            return `${hours}h ${minutes % 60}m`;
+        }
+
+        async function adminAction(username, action, extra = {}, refresh = true) {
+            const result = await request(`/api/admin/accounts/${encodeURIComponent(username)}`, {
+                method: 'POST',
+                body: JSON.stringify({ action, ...extra })
+            });
+            if (refresh) {
+                await loadAdminAccounts();
+                refreshUsers();
+                if (username.toLowerCase() === appState.user.name.toLowerCase()) refreshOwnProfile();
+            }
+            return result.account;
+        }
+
+        async function loadAdminAccounts() {
+            const list = document.getElementById('admin-list');
+            const message = document.getElementById('admin-message');
+            message.textContent = '';
+            list.replaceChildren();
+            try {
+                const result = await request('/api/admin/accounts');
+                if (result.accounts.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'admin-empty';
+                    empty.textContent = 'No accounts yet.';
+                    list.append(empty);
+                    return;
+                }
+                result.accounts.forEach(account => list.append(renderAdminAccount(account)));
+            } catch (error) {
+                message.textContent = error.message;
+            }
+        }
+
+        function renderAdminAccount(account) {
+            const row = document.createElement('article');
+            row.className = 'admin-account';
+            const person = document.createElement('div');
+            person.className = 'admin-person';
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            setAvatar(avatar, account.username, account.avatar);
+            const copy = document.createElement('div');
+            copy.className = 'admin-person-copy';
+            const username = document.createElement('div');
+            username.className = 'admin-username';
+            username.textContent = `${account.username}${account.ghosted ? ' · ghosted' : ''}${account.banned ? ' · banned' : ''}`;
+            const email = document.createElement('div');
+            email.className = 'admin-email';
+            email.textContent = account.email;
+            copy.append(username, email);
+            person.append(avatar, copy);
+
+            const stats = document.createElement('div');
+            stats.className = 'admin-stats';
+            const created = account.createdAt
+                ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(account.createdAt))
+                : 'Legacy account';
+            const state = account.banned ? 'Banned'
+                : account.muted ? 'Muted'
+                    : account.mutedUntil > Date.now() ? `Timed out until ${new Date(account.mutedUntil).toLocaleString()}`
+                        : 'In good standing';
+            stats.textContent = `Joined ${created} · ${account.messageCount} messages · active ${formatActivity(account.activeSeconds)} · ${account.warnings.length} warnings · ${state}`;
+
+            const controls = document.createElement('div');
+            controls.className = 'admin-controls';
+            const rank = document.createElement('select');
+            rank.setAttribute('aria-label', `Rank for ${account.username}`);
+            for (const value of ['member', 'moderator', 'admin', 'owner']) {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = value;
+                option.selected = account.role === value;
+                rank.append(option);
+            }
+            rank.disabled = account.role === 'owner';
+            rank.addEventListener('change', async () => {
+                try {
+                    await adminAction(account.username, 'role', { role: rank.value });
+                } catch (error) {
+                    document.getElementById('admin-message').textContent = error.message;
+                }
+            });
+            controls.append(rank);
+            const edit = document.createElement('button');
+            edit.type = 'button';
+            edit.textContent = 'Edit profile';
+            edit.addEventListener('click', () => {
+                document.getElementById('admin-dialog').close();
+                renderProfileEditor(account, true);
+                document.getElementById('profile-dialog').showModal();
+            });
+            controls.append(edit);
+            if (account.role !== 'owner') {
+                const actions = [
+                    [account.ghosted ? 'Un-ghost' : 'Ghost', account.ghosted ? 'unghost' : 'ghost'],
+                    [account.muted ? 'Unmute' : 'Mute', account.muted ? 'unmute' : 'mute'],
+                    [account.mutedUntil > Date.now() ? 'Remove timeout' : 'Timeout', account.mutedUntil > Date.now() ? 'untimeout' : 'timeout'],
+                    ['Warn', 'warn'],
+                    [account.banned ? 'Unban' : 'Ban', account.banned ? 'unban' : 'ban']
+                ];
+                for (const [label, action] of actions) {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.textContent = label;
+                    if (action === 'ban') button.className = 'danger';
+                    button.addEventListener('click', async () => {
+                        try {
+                            if (action === 'ban' && !confirm(`Ban ${account.username}? Their active sessions will be signed out.`)) return;
+                            if (action === 'timeout') {
+                                const minutes = Number(prompt(`Timeout ${account.username} for how many minutes? (1–10080)`, '10'));
+                                if (!Number.isInteger(minutes)) return;
+                                await adminAction(account.username, action, { minutes });
+                            } else if (action === 'warn') {
+                                const reason = prompt(`Add a warning for ${account.username}:`);
+                                if (reason === null) return;
+                                await adminAction(account.username, action, { reason });
+                            } else {
+                                await adminAction(account.username, action);
+                            }
+                        } catch (error) {
+                            document.getElementById('admin-message').textContent = error.message;
+                        }
+                    });
+                    controls.append(button);
+                }
+            }
+            row.append(person, stats, controls);
+            return row;
+        }
+
+        async function openAdminPanel() {
+            document.getElementById('admin-dialog').showModal();
+            await loadAdminAccounts();
+        }
+
+        document.getElementById('developer-open').addEventListener('click', openAdminPanel);
+        document.getElementById('admin-close').addEventListener('click', () => document.getElementById('admin-dialog').close());
+        document.getElementById('admin-dialog').addEventListener('click', event => {
+            if (event.target === event.currentTarget) event.currentTarget.close();
+        });
+
+        document.getElementById('member-list').addEventListener('click', event => {
+            const member = event.target.closest('[data-profile]');
+            if (member && appState.user) openProfile(member.dataset.profile);
+        });
+        document.getElementById('offline-list').addEventListener('click', event => {
+            const member = event.target.closest('[data-profile]');
+            if (member && appState.user) openProfile(member.dataset.profile);
+        });
+        document.getElementById('profile-open').addEventListener('click', () => {
+            if (appState.user) openProfile(appState.user.name);
+        });
+        document.getElementById('profile-dialog').addEventListener('close', stopProfileMusic);
+        document.getElementById('profile-dialog').addEventListener('click', event => {
+            if (event.target === event.currentTarget) event.currentTarget.close();
+        });
+
+        const statusMenu = document.getElementById('status-menu');
+        const statusControl = document.getElementById('status-control');
+        statusControl.addEventListener('click', () => {
+            statusMenu.hidden = !statusMenu.hidden;
+            statusControl.setAttribute('aria-expanded', String(!statusMenu.hidden));
+        });
+        document.addEventListener('click', event => {
+            if (!event.target.closest('#status-menu, #status-control')) {
+                statusMenu.hidden = true;
+                statusControl.setAttribute('aria-expanded', 'false');
+            }
+        });
+        statusMenu.querySelectorAll('[data-status]').forEach(option => {
+            option.addEventListener('click', async () => {
+                statusMenu.hidden = true;
+                statusControl.setAttribute('aria-expanded', 'false');
+                if (!appState.profile || option.dataset.status === appState.profile.status) return;
+                try {
+                    const result = await request('/api/profile/me', {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                            bio: appState.profile.bio,
+                            avatar: appState.profile.avatar,
+                            status: option.dataset.status
+                        })
+                    });
+                    updateOwnProfile(result.profile);
+                    statusMenu.querySelectorAll('[data-status]').forEach(item => {
+                        item.setAttribute('aria-checked', String(item.dataset.status === result.profile.status));
+                    });
+                    refreshUsers();
+                } catch (error) {
+                    showToast(error.message);
+                }
+            });
+        });
+
+        function setAuthMode(mode) {
+            appState.authMode = mode;
+            const registering = mode === 'register';
+            document.getElementById('join-title').textContent = registering ? 'Create your account.' : 'Welcome back.';
+            document.getElementById('auth-description').textContent = registering
+                ? 'Sign up with an email and username to join the conversation.'
+                : 'Sign in with your username or email.';
+            document.getElementById('username-field').hidden = !registering;
+            document.getElementById('email-field').hidden = !registering;
+            document.getElementById('identifier-field').hidden = registering;
+            document.getElementById('auth-password').autocomplete = registering ? 'new-password' : 'current-password';
+            document.getElementById('login-tab').classList.toggle('active', !registering);
+            document.getElementById('login-tab').setAttribute('aria-selected', String(!registering));
+            document.getElementById('register-tab').classList.toggle('active', registering);
+            document.getElementById('register-tab').setAttribute('aria-selected', String(registering));
+            document.getElementById('auth-submit').textContent = registering ? 'Create account' : 'Sign in';
+            joinError.textContent = '';
+        }
+
+        document.getElementById('login-tab').addEventListener('click', () => setAuthMode('login'));
+        document.getElementById('register-tab').addEventListener('click', () => setAuthMode('register'));
+
+        document.getElementById('auth-form').addEventListener('submit', async event => {
+            event.preventDefault();
+            const button = document.getElementById('auth-submit');
+            button.disabled = true;
+            joinError.textContent = '';
+            const registering = appState.authMode === 'register';
+            const payload = registering
+                ? {
+                    username: document.getElementById('auth-username').value,
+                    email: document.getElementById('auth-email').value,
+                    password: document.getElementById('auth-password').value
+                }
+                : {
+                    identifier: document.getElementById('auth-identifier').value,
+                    password: document.getElementById('auth-password').value
+                };
+            try {
+                const result = await request(registering ? '/api/auth/register' : '/api/auth/login', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                setUser(result.user);
+                document.getElementById('auth-password').value = '';
+            } catch (error) {
+                joinError.textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        });
+
+        document.getElementById('leave').addEventListener('click', async () => {
+            try {
+                await request('/api/auth/logout', { method: 'POST', body: '{}' });
+                setUser(null);
+                document.getElementById('auth-identifier').focus();
+            } catch (error) {
+                showToast(error.message);
+            }
+        });
+
+        document.getElementById('message-form').addEventListener('submit', async event => {
+            event.preventDefault();
+            const content = messageInput.value.trim();
+            if (!content) return;
+            const button = document.getElementById('send');
+            button.disabled = true;
+            try {
+                const directMessageUser = appState.activeDm;
+                const result = await request(directMessageUser ? '/api/dms' : '/api/messages', {
+                    method: 'POST',
+                    body: JSON.stringify(directMessageUser
+                        ? { recipient: directMessageUser, content }
+                        : { channel: appState.channel, content })
+                });
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
+                if (result.message.id > appState.lastMessageId) appendMessage(result.message);
+                if (result.botPending) {
+                    appState.botPending += 1;
+                    updateThinking();
+                }
+                if (directMessageUser) {
+                    appState.dmSeen.set(directMessageUser.toLowerCase(), appState.lastMessageId);
+                    refreshDirectMessages();
+                }
+            } catch (error) {
+                showToast(error.message);
+            } finally {
+                button.disabled = false;
+                messageInput.focus();
+            }
+        });
+
+        messageInput.addEventListener('input', () => {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = `${Math.min(messageInput.scrollHeight, 150)}px`;
+        });
+        messageInput.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                document.getElementById('message-form').requestSubmit();
+            }
+        });
+
+        request('/api/session').then(result => {
+            if (result.user) setUser(result.user);
+        }).catch(error => showToast(error.message));
+
+        setInterval(() => {
+            pollMessages();
+            refreshUsers();
+            refreshDirectMessages();
+        }, 1500);
+    </script>
+</body>
+</html>
