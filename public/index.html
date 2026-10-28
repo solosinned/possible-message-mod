@@ -120,6 +120,25 @@
         .message-image { display: block; max-width: min(420px, 100%); max-height: 340px; margin-top: 8px; border: 1px solid #3b3d48; border-radius: 9px; object-fit: contain; }
         .message.system { padding: 9px 12px; border: 1px solid #5a4828; border-radius: 8px; background: #28241b; }
         .message.system .message-text { color: #e8cf9b; }
+        .message.mentioned {
+            border-left-color: #c4a6ff;
+            background: linear-gradient(90deg, #6b4fc433, transparent 70%);
+        }
+        .message-mention {
+            display: inline;
+            padding: 1px 5px;
+            border-radius: 4px;
+            color: #efe8ff;
+            background: #6d54b5;
+            font-weight: 700;
+        }
+        .message-mention.is-self {
+            background: #8b6cf0;
+            box-shadow: 0 0 0 1px #b79bff88;
+        }
+        .message-mention.is-bot {
+            background: #5a4a8a;
+        }
         .composer-wrap { padding: 8px 22px 19px; }
         .thinking { min-height: 18px; padding: 0 4px 6px; color: #c2b5ed; font-size: 11px; }
         .thinking:empty { display: none; }
@@ -531,6 +550,47 @@
             oscillator.stop(startAt + 0.33);
         }
 
+        function extractMentions(content) {
+            const mentions = new Set();
+            const pattern = /(^|[^A-Za-z0-9_.-])@([A-Za-z0-9_.-]+)/g;
+            let match;
+            while ((match = pattern.exec(String(content || ''))) !== null) {
+                mentions.add(match[2].toLowerCase());
+            }
+            return mentions;
+        }
+
+        function fillMessageText(element, content) {
+            element.replaceChildren();
+            const text = String(content || '');
+            const pattern = /(^|[^A-Za-z0-9_.-])@([A-Za-z0-9_.-]+)/g;
+            let lastIndex = 0;
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                const full = match[0];
+                const prefix = match[1];
+                const name = match[2];
+                const start = match.index;
+                if (start > lastIndex) {
+                    element.append(document.createTextNode(text.slice(lastIndex, start)));
+                }
+                if (prefix) element.append(document.createTextNode(prefix));
+                const mention = document.createElement('span');
+                mention.className = 'message-mention';
+                mention.textContent = `@${name}`;
+                if (name.toLowerCase() === 'bot') mention.classList.add('is-bot');
+                if (appState.user && name.toLowerCase() === appState.user.name.toLowerCase()) {
+                    mention.classList.add('is-self');
+                }
+                element.append(mention);
+                lastIndex = start + full.length;
+            }
+            if (lastIndex < text.length) {
+                element.append(document.createTextNode(text.slice(lastIndex)));
+            }
+        }
+
+
         function showToast(message) {
             toast.textContent = message;
             toast.hidden = false;
@@ -594,7 +654,7 @@
             return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value));
         }
 
-        function appendMessage(message) {
+        function appendMessage(message, { notify = false } = {}) {
             appState.lastMessageId = Math.max(appState.lastMessageId, message.id);
             if (messageList.querySelector(`[data-message-id="${message.id}"]`)) return;
             const atBottom = messageScroll.scrollHeight - messageScroll.scrollTop - messageScroll.clientHeight < 100;
@@ -649,7 +709,7 @@
             }
             const text = document.createElement('div');
             text.className = 'message-text';
-            text.textContent = message.content;
+            fillMessageText(text, message.content);
             content.append(meta);
             if (message.content) content.append(text);
             if (message.image) {
@@ -661,6 +721,14 @@
                 content.append(image);
             }
             row.append(avatar, content, tools);
+            const mentionedMe = appState.user
+                && message.kind !== 'system'
+                && message.author.toLowerCase() !== appState.user.name.toLowerCase()
+                && extractMentions(message.content).has(appState.user.name.toLowerCase());
+            if (mentionedMe) {
+                row.classList.add('mentioned');
+                if (notify) playMessagePing();
+            }
             messageList.append(row);
             if (message.kind === 'bot' || message.kind === 'system') {
                 appState.botPending = Math.max(0, appState.botPending - 1);
@@ -749,7 +817,7 @@
                     : `/api/messages?channel=${encodeURIComponent(channelId)}&after=${appState.lastMessageId}`;
                 const result = await request(url);
                 if (directMessageUser && appState.activeDm?.toLowerCase() === directMessageUser.toLowerCase()) {
-                    result.messages.forEach(appendMessage);
+                    result.messages.forEach(message => appendMessage(message, { notify: true }));
                     for (const message of result.messages) {
                         if (message.author.toLowerCase() !== appState.user.name.toLowerCase()) {
                             appState.dmSeen.set(directMessageUser.toLowerCase(), message.id);
@@ -758,7 +826,7 @@
                     }
                     if (result.messages.length) refreshDirectMessages();
                 } else if (!directMessageUser && appState.channel === channelId) {
-                    result.messages.forEach(appendMessage);
+                    result.messages.forEach(message => appendMessage(message, { notify: true }));
                 }
             } catch (error) {
                 if (/Please sign in/.test(error.message)) setUser(null);
