@@ -4,8 +4,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 
-const HOST = process.env.HOST || '0.0.0.0';
-const PORT = Number(process.env.PORT || 3000);
+const HOST = resolveHost();
+const PORT = resolvePort();
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:1b';
 const MAX_BODY_BYTES = 9 * 1024 * 1024;
@@ -57,6 +57,43 @@ const CHANNELS = [
 function getUserStorePath(environment = process.env) {
     const dataDirectory = environment.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, 'data');
     return environment.USER_STORE_PATH || path.join(dataDirectory, 'users.json');
+}
+
+function normalizeHost(value) {
+    const host = String(value ?? '').trim();
+    if (!host) return '0.0.0.0';
+    if (/^https?:\/\//i.test(host)) {
+        try {
+            return new URL(host).hostname || '0.0.0.0';
+        } catch {
+            // Fall back to the raw value below.
+        }
+    }
+    if (host.includes(':') && !host.startsWith('[')) {
+        const lastColon = host.lastIndexOf(':');
+        const suffix = host.slice(lastColon + 1);
+        const prefix = host.slice(0, lastColon);
+        if (/^\d+$/.test(suffix) && prefix) return prefix;
+    }
+    return host;
+}
+
+function resolveHost(environment = process.env) {
+    return normalizeHost(environment.HOST || '0.0.0.0');
+}
+
+function resolvePort(environment = process.env) {
+    const candidate = environment.PORT ?? 3000;
+    if (typeof candidate === 'string') {
+        const trimmed = candidate.trim();
+        if (/^\d+$/.test(trimmed)) return Number(trimmed);
+        const match = trimmed.match(/:(\d+)\)?$/);
+        if (match) return Number(match[1]);
+        const urlMatch = trimmed.match(/https?:\/\/[^:/]+:(\d+)/i);
+        if (urlMatch) return Number(urlMatch[1]);
+    }
+    const value = Number(candidate);
+    return Number.isInteger(value) && value > 0 && value <= 65535 ? value : 3000;
 }
 
 function normalizeEmail(value) {
@@ -848,8 +885,8 @@ function directMessageKey(firstUserId, secondUserId) {
 }
 
 async function createChatServer({
-    host = HOST,
-    port = PORT,
+    host = resolveHost(),
+    port = resolvePort(),
     state = createChatState(),
     fetchImpl = globalThis.fetch,
     baseUrl = OLLAMA_BASE_URL,
@@ -2675,7 +2712,9 @@ async function main() {
     const state = createChatState();
     const server = await createChatServer({ state });
     const address = server.address();
-    console.log(`Orbit chat is listening on ${HOST}:${address.port}`);
+    const listeningHost = address && typeof address === 'object' ? address.address : resolveHost();
+    const listeningPort = address && typeof address === 'object' ? address.port : resolvePort();
+    console.log(`Orbit chat is listening on ${listeningHost}:${listeningPort}`);
     console.log(`AI model: ${OLLAMA_MODEL} at ${OLLAMA_BASE_URL}`);
     let shuttingDown = false;
     for (const signal of ['SIGINT', 'SIGTERM']) {
