@@ -1050,13 +1050,11 @@ async function createChatServer({
                         if ((account && !canRecoverProfile) || (emailAccount && emailAccount !== account)) {
                             return { status: 409, error: 'That username or email is already registered.' };
                         }
-                        const { data, error } = await state.supabaseClients.auth.auth.signUp({
+                        const { data, error } = await state.supabaseClients.admin.auth.admin.createUser({
                             email,
                             password,
-                            options: {
-                                data: { username },
-                                emailRedirectTo: process.env.SUPABASE_AUTH_REDIRECT_URL || 'https://esakura.lol/'
-                            }
+                            email_confirm: true,
+                            user_metadata: { username }
                         });
                         if (error) {
                             const duplicate = /already registered|already exists/i.test(error.message);
@@ -1089,19 +1087,16 @@ async function createChatServer({
                             }
                             throw saveError;
                         }
-                        return { status: 201, account: newAccount, session: data.session };
+                        return { status: 201, account: newAccount };
                     });
                     if (result.error) {
                         sendJson(response, result.status, { error: result.error });
                         return;
                     }
                     state.authAttempts.delete(`register:${request.socket.remoteAddress || 'unknown'}`);
-                    const headers = result.session ? createSession(state, result.account) : {};
+                    const headers = createSession(state, result.account);
                     sendJson(response, 201, {
-                        user: result.session
-                            ? { name: result.account.username, username: result.account.username }
-                            : null,
-                        needsEmailConfirmation: !result.session
+                        user: { name: result.account.username, username: result.account.username }
                     }, headers);
                     return;
                 }

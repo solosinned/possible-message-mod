@@ -34,6 +34,16 @@ function createMockSupabaseClients() {
         },
         auth: {
             admin: {
+                createUser: async ({ email, password, email_confirm, user_metadata }) => {
+                    assert.equal(email, 'alice@example.com');
+                    assert.equal(password, 'safe-password-123');
+                    assert.equal(email_confirm, true);
+                    assert.equal(user_metadata.username, 'Alice');
+                    return {
+                        data: { user: { ...user, email, identities: [{ id: user.id }] } },
+                        error: null
+                    };
+                },
                 deleteUser: async () => ({ error: null }),
                 updateUserById: async () => ({ error: null })
             }

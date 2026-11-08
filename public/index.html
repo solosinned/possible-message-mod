@@ -4020,11 +4020,6 @@
                     document.getElementById('password-reset-dialog').showModal();
                     document.getElementById('password-reset-input').focus();
                 }
-                if (result.needsEmailConfirmation) {
-                    joinError.classList.add('success');
-                    joinError.textContent = 'Check your email to confirm your account, then sign in.';
-                    return;
-                }
                 setUser(result.user);
                 document.getElementById('auth-password').value = '';
             } catch (error) {
