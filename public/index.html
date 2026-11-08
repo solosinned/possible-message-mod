@@ -136,7 +136,7 @@
         .status-option .status-dot { width: 12px; height: 12px; border: 0; box-shadow: none; }
         .chat { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--bg); }
         .mobile-channel-toggle { display: none; }
-        .topbar { position: relative; display: flex; align-items: center; gap: 11px; min-height: 64px; padding: 0 22px; border-bottom: 1px solid var(--line); box-shadow: 0 2px 8px #00000012; }
+        .topbar { position: relative; z-index: 5; display: flex; align-items: center; gap: 11px; min-height: 64px; padding: 0 22px; border-bottom: 1px solid var(--line); box-shadow: 0 2px 8px #00000012; }
         .topbar.channel-enter { animation: content-enter .32s cubic-bezier(.2,.8,.2,1) both; }
         .topbar-hash { color: #a0a2ae; font-size: 23px; }
         .topbar h1 { margin: 0; font-size: 15px; font-weight: 750; }
@@ -190,8 +190,8 @@
         .message-role-badge.rank-moderator { color: #cbe4ff; background: #304d6b; }
         .message-role-badge.rank-member { color: #d3d5de; background: #3a3b43; }
         .message-reactions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-        .message-reaction-picker { display: none; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-        .message:hover .message-reaction-picker, .message:focus-within .message-reaction-picker { display: flex; animation: content-enter .16s ease both; }
+        .message-reaction-picker { display: flex; gap: 3px; }
+        .message-reaction-picker[hidden] { display: none; }
         .message-reaction { padding: 3px 7px; border: 1px solid #41424c; border-radius: 999px; color: #dbdce5; background: #282930; font-size: 11px; }
         .message-reaction.active { border-color: #8067c0; background: #3b3151; }
         .message-deleted { color: #92939e; font-style: italic; }
@@ -202,7 +202,6 @@
         .message-meta { display: flex; align-items: baseline; gap: 8px; margin: 1px 0 4px; }
         .message-author { color: #f2f0f7; font-size: 13px; font-weight: 700; }
         .message-time { color: #858793; font-size: 10px; }
-        .bot-badge { padding: 2px 5px; border-radius: 4px; color: #eee8ff; background: #7254b2; font-size: 9px; font-weight: 750; text-transform: uppercase; }
         .message-text { color: #d5d5dc; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
         .message-image { display: block; max-width: min(420px, 100%); max-height: 340px; margin-top: 8px; border: 1px solid #3b3d48; border-radius: 9px; object-fit: contain; }
         .message.system { padding: 9px 12px; border: 1px solid #5a4828; border-radius: 8px; background: #28241b; }
@@ -232,14 +231,9 @@
             background: #8b6cf0;
             box-shadow: 0 0 0 1px #b79bff88;
         }
-        .message-mention.is-bot {
-            background: #5a4a8a;
-        }
         .load-older { align-self: center; margin: 2px 0 18px; padding: 7px 12px; border: 1px solid #3b3c46; border-radius: 999px; color: #b7b3c4; background: #23242a; font-size: 10px; }
         .load-older[hidden] { display: none; }
         .composer-wrap { padding: 8px 22px 19px; }
-        .thinking { min-height: 18px; padding: 0 4px 6px; color: #c2b5ed; font-size: 11px; }
-        .thinking:empty { display: none; }
         .typing-indicator { min-height: 17px; padding: 0 4px 5px; color: #a7a8b4; font-size: 10px; }
         .typing-indicator:empty { display: none; }
         .topbar-tools { display: flex; align-items: center; gap: 5px; margin-left: auto; }
@@ -321,7 +315,6 @@
         .member-role.rank-admin { color: #ffd5d8; background: #693840; }
         .member-role.rank-moderator { color: #cbe4ff; background: #304d6b; }
         .member-role.rank-member { color: #d3d5de; background: #3a3b43; }
-        .member.bot-member { color: #d8cbff; }
         .member.offline { color: #9c9eaa; opacity: .76; }
         .member.offline .avatar { filter: saturate(.55); }
         .member-empty { padding: 6px 4px; color: var(--muted); font-size: 11px; }
@@ -624,12 +617,11 @@
                 <section class="welcome">
                     <div class="welcome-mark" aria-hidden="true">✦</div>
                     <h2 id="welcome-title">Welcome to #general</h2>
-                    <p>This is the beginning of the channel. Say hello, or mention <strong>@bot</strong> to chat with Orbit, the AI bot.</p>
+                    <p>This is the beginning of the channel. Say hello and start a conversation.</p>
                 </section>
                 <div class="message-list" id="message-list" aria-live="polite"></div>
             </div>
             <div class="composer-wrap">
-                <div class="thinking" id="thinking" role="status"></div>
                 <div class="typing-indicator" id="typing-indicator" role="status" aria-live="polite"></div>
                 <div class="composer-context" id="reply-context" hidden>
                     <span class="composer-context-copy" id="reply-context-copy"></span>
@@ -648,7 +640,7 @@
                     <textarea id="message-input" rows="1" maxlength="1000" placeholder="Message #general" aria-label="Write a message"></textarea>
                     <button class="send" id="send" type="submit" aria-label="Send message">↑</button>
                 </form>
-                <p class="composer-help">Enter to send · Shift + Enter for a new line · mention @bot for a reply</p>
+                <p class="composer-help">Enter to send · Shift + Enter for a new line</p>
             </div>
         </section>
         <aside class="members">
@@ -717,13 +709,13 @@
                 <p>Pick topics you like, then jump into any of Orbit’s public spaces. Your choices are saved to your account.</p>
                 <div class="onboarding-options" id="onboarding-interests">
                     <label class="onboarding-choice"><input type="checkbox" value="conversation"> Everyday chat</label>
-                    <label class="onboarding-choice"><input type="checkbox" value="ai"> AI and ideas</label>
+                    <label class="onboarding-choice"><input type="checkbox" value="ideas"> Ideas and projects</label>
                     <label class="onboarding-choice"><input type="checkbox" value="games"> Games</label>
                     <label class="onboarding-choice"><input type="checkbox" value="music"> Music</label>
                 </div>
                 <div class="onboarding-channels">
                     <button type="button" data-onboarding-channel="general">#general · everyday chat</button>
-                    <button type="button" data-onboarding-channel="ai-lab">#ai-lab · talk to @bot</button>
+                    <button type="button" data-onboarding-channel="ai-lab">#ideas · projects and ideas</button>
                     <button type="button" data-onboarding-channel="off-topic">#off-topic · games and more</button>
                 </div>
             </section>
@@ -743,7 +735,6 @@
                     <label><input type="checkbox" value="channels"> Explore a channel</label>
                     <label><input type="checkbox" value="profile"> Add a bio or profile picture</label>
                     <label><input type="checkbox" value="message"> Send a message or reaction</label>
-                    <label><input type="checkbox" value="bot"> Ask @bot a question</label>
                 </div>
             </section>
             <footer class="onboarding-footer">
@@ -1001,10 +992,10 @@
 
         const channelDetails = {
             general: { name: 'general', topic: 'The place for everyday conversation.' },
-            'ai-lab': { name: 'ai-lab', topic: 'Ask the bot anything. Start a message with @bot.' },
+            'ai-lab': { name: 'ideas', topic: 'Share projects, ideas, and things you’re curious about.' },
             'off-topic': { name: 'off-topic', topic: 'Games, music, and everything else.' }
         };
-        const appState = { user: null, profile: null, onboarding: { completed: false, steps: [], interests: [], notifications: 'mentions' }, onboardingQueue: Promise.resolve(), memberProfiles: new Map(), members: { online: [], offline: [] }, channel: 'general', channels: [], channelUnread: new Map(), blockedUsers: new Set(), channelCanInvite: false, hasMoreMessages: false, loadingOlder: false, activeDm: null, activeThreadId: null, threadReplyTarget: null, editingMessage: null, reportingMessage: null, typingChannel: null, replyTarget: null, selectedImage: null, dmSeen: new Map(), dmUnread: new Set(), dmsInitialized: false, dmPolling: false, pingAudioContext: null, lastMessageId: 0, lastMessageRevision: 0, polling: false, channelLoading: false, botPending: 0, authMode: 'login', announcements: [], lastAnnouncementId: 0, readAnnouncementId: 0, announcementPolling: false, typingPolling: false, voice: { channel: null, stream: null, peers: new Map(), cursor: 0, polling: false, interval: null } };
+        const appState = { user: null, profile: null, onboarding: { completed: false, steps: [], interests: [], notifications: 'mentions' }, onboardingQueue: Promise.resolve(), memberProfiles: new Map(), members: { online: [], offline: [] }, channel: 'general', channels: [], channelUnread: new Map(), blockedUsers: new Set(), channelCanInvite: false, hasMoreMessages: false, loadingOlder: false, activeDm: null, activeThreadId: null, threadReplyTarget: null, editingMessage: null, reportingMessage: null, typingChannel: null, replyTarget: null, selectedImage: null, dmSeen: new Map(), dmUnread: new Set(), dmsInitialized: false, dmPolling: false, pingAudioContext: null, lastMessageId: 0, lastMessageRevision: 0, polling: false, channelLoading: false, authMode: 'login', announcements: [], lastAnnouncementId: 0, readAnnouncementId: 0, announcementPolling: false, typingPolling: false, voice: { channel: null, stream: null, peers: new Map(), cursor: 0, polling: false, interval: null } };
         const messageList = document.getElementById('message-list');
         const messageScroll = document.getElementById('message-scroll');
         const messageInput = document.getElementById('message-input');
@@ -1153,7 +1144,6 @@
                 const mention = document.createElement('span');
                 mention.className = 'message-mention';
                 mention.textContent = `@${name}`;
-                if (name.toLowerCase() === 'bot') mention.classList.add('is-bot');
                 if (appState.user && name.toLowerCase() === appState.user.name.toLowerCase()) {
                     mention.classList.add('is-self');
                 }
@@ -1349,12 +1339,12 @@
             });
             const channelInterests = {
                 general: ['conversation'],
-                'ai-lab': ['ai'],
+                'ai-lab': ['ideas'],
                 'off-topic': ['games', 'music']
             };
             const channelLabels = {
                 general: '#general · everyday chat',
-                'ai-lab': '#ai-lab · talk to @bot',
+                'ai-lab': '#ideas · projects and ideas',
                 'off-topic': '#off-topic · games and more'
             };
             document.querySelectorAll('[data-onboarding-channel]').forEach(button => {
@@ -1365,7 +1355,7 @@
                 button.setAttribute('aria-label', `${channelLabels[channel]}${recommended ? ', recommended for your interests' : ''}`);
             });
             document.getElementById('onboarding-progress').textContent =
-                `${steps.size} of 4 getting-started steps complete`;
+                `${steps.size} of 3 getting-started steps complete`;
         }
 
         async function loadOnboarding(username) {
@@ -1539,7 +1529,6 @@
             avatar.className = 'avatar';
             const authorProfile = appState.memberProfiles.get(message.author.toLowerCase());
             setAvatar(avatar, message.author, authorProfile?.avatar || null);
-            if (message.kind === 'bot') avatar.style.background = '#7055b0';
             const content = document.createElement('div');
             content.className = 'message-content';
             const tools = document.createElement('div');
@@ -1554,6 +1543,7 @@
                 button.hidden = hidden;
                 button.addEventListener('click', action);
                 tools.append(button);
+                return button;
             };
             const ownMessage = appState.user?.name.toLowerCase() === message.author.toLowerCase();
             const canDelete = message.kind === 'user' && (ownMessage
@@ -1562,6 +1552,31 @@
                         < memberRoleOrder.indexOf(normalizedMemberRole(authorProfile || { role: 'member' })));
             addTool('Reply', () => setReplyTarget(message), message.deleted, `Reply to ${message.author}'s message`);
             if (message.channelId) {
+                const picker = document.createElement('div');
+                picker.className = 'message-reaction-picker';
+                picker.hidden = true;
+                picker.setAttribute('role', 'group');
+                picker.setAttribute('aria-label', 'Choose a reaction');
+                const reactButton = addTool('React', () => {
+                    picker.hidden = !picker.hidden;
+                    reactButton.setAttribute('aria-expanded', String(!picker.hidden));
+                }, message.deleted, `React to ${message.author}'s message`);
+                reactButton.setAttribute('aria-haspopup', 'true');
+                reactButton.setAttribute('aria-expanded', 'false');
+                for (const emoji of ['👍', '❤️', '😂', '🎉', '😮']) {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'message-reaction';
+                    button.textContent = emoji;
+                    button.setAttribute('aria-label', `React with ${emoji}`);
+                    button.addEventListener('click', () => {
+                        picker.hidden = true;
+                        reactButton.setAttribute('aria-expanded', 'false');
+                        toggleReaction(message, emoji);
+                    });
+                    picker.append(button);
+                }
+                tools.append(picker);
                 addTool('Thread', () => openThread(message), message.deleted);
                 addTool(message.pinned ? 'Unpin' : 'Pin', () => togglePin(message),
                     !['developer', 'owner', 'admin'].includes(appState.profile?.role) || message.deleted);
@@ -1588,12 +1603,6 @@
                 const roleBadge = document.createElement('span');
                 setRankIcon(roleBadge, authorRole, 'message-role-badge');
                 meta.append(roleBadge);
-            }
-            if (message.kind === 'bot') {
-                const badge = document.createElement('span');
-                badge.className = 'bot-badge';
-                badge.textContent = 'Bot';
-                meta.append(badge);
             }
             meta.append(time);
             if (message.editedAt) {
@@ -1701,19 +1710,6 @@
                     reactions.append(button);
                 }
                 if (reactions.childElementCount) content.append(reactions);
-                const picker = document.createElement('div');
-                picker.className = 'message-reaction-picker';
-                picker.setAttribute('aria-label', 'Add a reaction');
-                for (const emoji of ['👍', '❤️', '😂', '🎉', '😮']) {
-                    const button = document.createElement('button');
-                    button.type = 'button';
-                    button.className = 'message-reaction';
-                    button.textContent = emoji;
-                    button.setAttribute('aria-label', `React with ${emoji}`);
-                    button.addEventListener('click', () => toggleReaction(message, emoji));
-                    picker.append(button);
-                }
-                content.append(picker);
             }
             row.append(avatar, content, tools);
             const mentionedMe = appState.user
@@ -1746,10 +1742,6 @@
                     .find(item => Number(item.dataset.messageId) > message.id);
                 targetList.insertBefore(row, nextMessage || null);
             } else targetList.append(row);
-            if (message.kind === 'bot' || message.kind === 'system') {
-                appState.botPending = Math.max(0, appState.botPending - 1);
-                updateThinking();
-            }
             if (atBottom) messageScroll.scrollTop = messageScroll.scrollHeight;
         }
 
@@ -2235,12 +2227,6 @@
             if (appState.typingChannel) void sendTyping(false);
         }
 
-        function updateThinking() {
-            document.getElementById('thinking').textContent = appState.botPending
-                ? 'Orbit is thinking…'
-                : '';
-        }
-
         function setReplyTarget(message) {
             if (document.getElementById('thread-dialog').open) {
                 appState.threadReplyTarget = message.id;
@@ -2288,7 +2274,6 @@
             appState.lastMessageRevision = 0;
             appState.hasMoreMessages = false;
             document.getElementById('load-older').hidden = true;
-            appState.botPending = 0;
             document.getElementById('typing-indicator').textContent = '';
             for (const id of ['message-search-dialog', 'pins-dialog', 'thread-dialog']) {
                 const dialog = document.getElementById(id);
@@ -2296,7 +2281,6 @@
             }
             document.querySelector('.topbar-tools').hidden = false;
             messageList.replaceChildren();
-            updateThinking();
             const channel = channelDetails[appState.channel] || { name: appState.channel, topic: '' };
             updateActivityControls(channel);
             const unread = appState.channelUnread.get(channelId);
@@ -2571,7 +2555,7 @@
                 const username = String(user.username || user.name || 'Unknown');
                 const role = normalizedMemberRole(user);
                 const row = document.createElement('button');
-                row.className = `member${user.name === 'Orbit' ? ' bot-member' : ''}${offline ? ' offline' : ''}`;
+                row.className = `member${offline ? ' offline' : ''}`;
                 row.type = 'button';
                 row.setAttribute('aria-label', `View ${username}'s profile`);
                 row.dataset.profile = username;
@@ -2597,7 +2581,7 @@
             const updateMember = (row, user, offline) => {
                 const username = String(user.username || user.name || 'Unknown');
                 const role = normalizedMemberRole(user);
-                row.className = `member${user.name === 'Orbit' ? ' bot-member' : ''}${offline ? ' offline' : ''}`;
+                row.className = `member${offline ? ' offline' : ''}`;
                 row.dataset.profile = username;
                 row.setAttribute('aria-label', `View ${username}'s profile`);
                 const avatar = row.querySelector('.avatar');
@@ -2754,9 +2738,7 @@
             document.querySelector('.topbar-tools').hidden = true;
             document.getElementById('poll-open').hidden = true;
             document.getElementById('event-open').hidden = true;
-            appState.botPending = 0;
             messageList.replaceChildren();
-            updateThinking();
             document.querySelector('.welcome').hidden = true;
             document.querySelector('.topbar-hash').textContent = '@';
             document.getElementById('channel-name').textContent = username;
@@ -3726,10 +3708,6 @@
                 appendMessage(result.message);
                 appState.threadReplyTarget = appState.activeThreadId;
                 document.querySelector('.thread-intro').textContent = 'Continue the conversation with a reply below.';
-                if (result.botPending) {
-                    appState.botPending += 1;
-                    updateThinking();
-                }
                 await refreshThread(appState.activeThreadId);
             } catch (error) {
                 showToast(error.message);
@@ -4050,10 +4028,6 @@
                 appendMessage(result.message);
                 if (threadId && document.getElementById('thread-dialog').open) {
                     await refreshThread(threadId);
-                }
-                if (result.botPending) {
-                    appState.botPending += 1;
-                    updateThinking();
                 }
                 if (directMessageUser) {
                     appState.dmSeen.set(directMessageUser.toLowerCase(), appState.lastMessageId);

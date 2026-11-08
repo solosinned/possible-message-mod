@@ -6,8 +6,6 @@ const path = require('node:path');
 const {
     getUserStorePath,
     createChatState,
-    generateBotReply,
-    botUnavailableMessage,
     createChatServer
 } = require('../bot.js');
 
@@ -46,53 +44,6 @@ async function join(baseUrl, username, email = `${username.toLowerCase()}@exampl
     };
 }
 
-test('generates a concise bot reply with recent channel context', async () => {
-    let requestUrl;
-    let requestOptions;
-    const reply = await generateBotReply([
-        { author: 'Alice', content: 'What should we build?', kind: 'user' },
-        { author: 'Orbit', content: 'A tiny chat site.', kind: 'bot' },
-        { author: 'Bob', content: '@bot can we add reactions?', kind: 'user' }
-    ], async (url, options) => {
-        requestUrl = url;
-        requestOptions = options;
-        return {
-            ok: true,
-            json: async () => ({ message: { content: 'Sure, reactions would be a fun addition.' } })
-        };
-    }, { baseUrl: 'http://ollama.local/', model: 'test-model' });
-
-    assert.equal(requestUrl, 'http://ollama.local/api/chat');
-    const payload = JSON.parse(requestOptions.body);
-    assert.equal(payload.model, 'test-model');
-    assert.equal(payload.stream, false);
-    assert.deepEqual(payload.messages.slice(1), [
-        { role: 'user', content: 'Alice: What should we build?' },
-        { role: 'assistant', content: 'A tiny chat site.' },
-        { role: 'user', content: 'Bob: @bot can we add reactions?' }
-    ]);
-    assert.equal(reply, 'Sure, reactions would be a fun addition.');
-});
-
-test('rejects failed and empty AI responses', async () => {
-    await assert.rejects(generateBotReply([], async () => ({ ok: false, status: 503 })), /request failed \(503\)/);
-    await assert.rejects(generateBotReply([], async () => ({
-        ok: true,
-        json: async () => ({ message: { content: '  ' } })
-    })), /empty response/);
-});
-
-test('explains how to get Ollama running', () => {
-    assert.match(
-        botUnavailableMessage(new TypeError('fetch failed', { cause: new Error('connection refused') }), 'http://127.0.0.1:11434', 'llama3.2:1b'),
-        /Start Ollama on the chat server with "ollama serve"/
-    );
-    assert.match(
-        botUnavailableMessage(new Error('Ollama request failed (404)'), 'http://localhost:11434', 'test-model'),
-        /ollama pull test-model/
-    );
-});
-
 test('serves the chat app with security headers and no external chat integration', async t => {
     const baseUrl = await startServer(t);
     const response = await fetch(baseUrl);
@@ -103,7 +54,7 @@ test('serves the chat app with security headers and no external chat integration
     assert.equal(response.headers.get('x-frame-options'), 'DENY');
     assert.match(response.headers.get('content-security-policy'), /media-src 'self' data: blob:/);
     assert.match(page, /Orbit community/);
-    assert.match(page, /@bot/);
+    assert.doesNotMatch(page, /@bot|Ollama|bot-badge/);
     assert.match(page, /Username or email/);
     assert.match(page, /Create account/);
     assert.match(page, /id="attach-image"/);
@@ -143,13 +94,16 @@ test('serves the chat app with security headers and no external chat integration
     assert.match(page, /element\.insertBefore\(row, element\.children\[index\] \|\| null\)/);
     assert.match(page, /id="theme-select"/);
     assert.match(page, /message-reaction/);
-    assert.match(page, /\.message-reaction-picker \{ display: none/);
-    assert.match(page, /\.message:hover \.message-reaction-picker/);
+    assert.match(page, /\.message-reaction-picker \{ display: flex/);
+    assert.match(page, /\.message-reaction-picker\[hidden\] \{ display: none/);
     assert.match(page, /picker\.className = 'message-reaction-picker'/);
+    assert.match(page, /addTool\('React'/);
+    assert.doesNotMatch(page, /\.message:hover \.message-reaction-picker/);
     assert.match(page, /changesAfter=\$\{appState\.lastMessageRevision\}/);
     assert.match(page, /id="developer-tools-topbar"/);
     assert.match(page, /\.admin-dialog\[open\] \{ animation: tool-panel-enter/);
     assert.match(page, /\.notification-panel:not\(\[hidden\]\) \{ transform-origin: top right; animation: notification-enter/);
+    assert.match(page, /\.topbar \{ position: relative; z-index: 5;/);
     assert.match(page, /\.announcement-alert\[open\] \{ animation: announcement-enter/);
     assert.match(page, /prefers-reduced-motion: reduce/);
     assert.match(page, /id="moderation-duration"/);
@@ -186,19 +140,19 @@ test('requires an account session before reading channels or messages', async t 
     assert.equal(onboarding.status, 401);
 });
 
-test('creates an account and prevents duplicate usernames or emails', async t => {
+test('creates an account including the former Orbit bot name and prevents duplicates', async t => {
     const baseUrl = await startServer(t);
     const alice = await join(baseUrl, 'Alice', 'alice@example.com');
     const duplicateUsername = await join(baseUrl, 'alice', 'alice2@example.com');
     const duplicateEmail = await join(baseUrl, 'Alice2', 'ALICE@example.com');
-    const reserved = await join(baseUrl, 'Orbit', 'orbit@example.com');
+    const formerBotName = await join(baseUrl, 'Orbit', 'orbit@example.com');
 
     assert.equal(alice.response.status, 201);
     assert.match(alice.cookie, /^chat_session=[a-f0-9]{48}$/);
     assert.equal(duplicateUsername.response.status, 409);
     assert.match((await duplicateUsername.response.json()).error, /already registered/);
     assert.equal(duplicateEmail.response.status, 409);
-    assert.equal(reserved.response.status, 400);
+    assert.equal(formerBotName.response.status, 201);
 });
 
 test('signs in with either the username or email', async t => {
@@ -740,7 +694,7 @@ test('persists onboarding progress and validates onboarding preferences', async 
         body: JSON.stringify({
             completed: true,
             steps: ['channels', 'profile'],
-            interests: ['ai', 'music'],
+            interests: ['ideas', 'music'],
             notifications: 'quiet'
         })
     });
@@ -763,12 +717,43 @@ test('persists onboarding progress and validates onboarding preferences', async 
     assert.deepEqual(updatedProgress.onboarding, {
         completed: true,
         steps: ['channels', 'profile'],
-        interests: ['ai', 'music'],
+        interests: ['ideas', 'music'],
         notifications: 'quiet'
     });
     assert.equal(duplicateStep.status, 400);
     assert.deepEqual((await persisted.json()).onboarding, updatedProgress.onboarding);
     assert.equal(stored[0].onboarding.completed, true);
+});
+
+test('migrates removed AI onboarding choices for existing accounts', async t => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'orbit-onboarding-migration-'));
+    const userStorePath = path.join(directory, 'users.json');
+    t.after(() => fs.rm(directory, { recursive: true, force: true }));
+    const first = await createChatServer({ host: '127.0.0.1', port: 0, userStorePath });
+    const firstBase = `http://127.0.0.1:${first.address().port}`;
+    await join(firstBase, 'OnboardingLegacy');
+    await new Promise((resolve, reject) => first.close(error => error ? reject(error) : resolve()));
+
+    const accounts = JSON.parse(await fs.readFile(userStorePath, 'utf8'));
+    accounts[0].onboarding = {
+        completed: true,
+        steps: ['channels', 'bot'],
+        interests: ['ai', 'music'],
+        notifications: 'quiet'
+    };
+    await fs.writeFile(userStorePath, JSON.stringify(accounts));
+    const server = await createChatServer({ host: '127.0.0.1', port: 0, userStorePath });
+    t.after(() => new Promise((resolve, reject) => {
+        server.close(error => error ? reject(error) : resolve());
+    }));
+
+    const migrated = JSON.parse(await fs.readFile(userStorePath, 'utf8'))[0].onboarding;
+    assert.deepEqual(migrated, {
+        completed: true,
+        steps: ['channels'],
+        interests: ['music', 'ideas'],
+        notifications: 'quiet'
+    });
 });
 
 test('removes legacy custom avatar overlays from saved profiles', async t => {
@@ -1010,8 +995,9 @@ test('developer tools manage ranks, ghosting, moderation, and account stats', as
     assert.match(timeoutAction.message.content, /TargetUser was timed out for 1 day\. Reason: Please take a break\./);
     assert.equal((await adminAction('TargetUser', { action: 'untimeout' })).status, 200);
     const noticesResponse = await fetch(`${base}/api/messages?channel=general`, { headers: { Cookie: readerCookie } });
-    const notices = (await noticesResponse.json()).messages.filter(message => message.author === 'Orbit');
+    const notices = (await noticesResponse.json()).messages.filter(message => message.author === 'System');
     assert.equal(notices.length, 3);
+    assert.ok(notices.every(message => message.kind === 'system'));
 
     const afterActions = await fetch(`${base}/api/admin/accounts`, { headers: { Cookie: ownerCookie } });
     const targetStats = (await afterActions.json()).accounts.find(account => account.username === 'TargetUser');
@@ -1258,21 +1244,9 @@ test('rejects invalid channels, empty messages, and malformed JSON', async t => 
     assert.equal(invalidShape.status, 400);
 });
 
-test('answers an @bot message inside its channel', async t => {
+test('treats former bot mentions as ordinary messages and has no bot account', async t => {
     const state = createChatState();
-    let botRequest;
-    const baseUrl = await startServer(t, {
-        state,
-        fetchImpl: async (url, options) => {
-            botRequest = { url, payload: JSON.parse(options.body) };
-            return {
-                ok: true,
-                json: async () => ({ message: { content: 'Hello, Alice!' } })
-            };
-        },
-        baseUrl: 'http://ollama.local',
-        model: 'test-model'
-    });
+    const baseUrl = await startServer(t, { state });
     const { cookie } = await join(baseUrl, 'Alice');
     const response = await fetch(`${baseUrl}/api/messages`, {
         method: 'POST',
@@ -1280,51 +1254,55 @@ test('answers an @bot message inside its channel', async t => {
         body: JSON.stringify({ channel: 'ai-lab', content: '@bot say hello' })
     });
     const result = await response.json();
-    await state.botQueues.get('ai-lab');
     const history = await fetch(`${baseUrl}/api/messages?channel=ai-lab`, {
         headers: { Cookie: cookie }
     });
     const messages = (await history.json()).messages;
 
     assert.equal(response.status, 201);
-    assert.equal(result.botPending, true);
-    assert.equal(botRequest.url, 'http://ollama.local/api/chat');
-    assert.equal(botRequest.payload.model, 'test-model');
+    assert.equal(Object.hasOwn(result, 'botPending'), false);
     assert.deepEqual(messages.map(message => [message.author, message.content, message.kind]), [
-        ['Alice', '@bot say hello', 'user'],
-        ['Orbit', 'Hello, Alice!', 'bot']
+        ['Alice', '@bot say hello', 'user']
     ]);
+    assert.equal(state.botQueues, undefined);
 });
 
-test('publishes a visible notice when Ollama is unavailable', async t => {
+test('migrates historic bot messages to neutral system notices', async t => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'orbit-history-migration-'));
+    const userStorePath = path.join(directory, 'users.json');
+    t.after(() => fs.rm(directory, { recursive: true, force: true }));
+    const oldBotMessage = {
+        id: 1,
+        channelId: 'general',
+        author: 'Orbit',
+        content: 'Old bot message',
+        kind: 'bot',
+        createdAt: new Date().toISOString(),
+        reactions: [],
+        pinned: false,
+        revision: 1
+    };
+    const messageStorePath = `${userStorePath}.messages.json`;
+    await fs.writeFile(messageStorePath, JSON.stringify({
+        messages: { general: [oldBotMessage] },
+        directMessages: {},
+        privateChannels: [],
+        reports: []
+    }));
+
     const state = createChatState();
-    const baseUrl = await startServer(t, {
-        state,
-        fetchImpl: async () => ({ ok: false, status: 503 })
-    });
-    const { cookie } = await join(baseUrl, 'Alice');
-    const originalError = console.error;
-    const errors = [];
-    console.error = message => errors.push(message);
-    try {
-        await fetch(`${baseUrl}/api/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Cookie: cookie },
-            body: JSON.stringify({ channel: 'general', content: '@bot help' })
-        });
-        await state.botQueues.get('general');
+    const server = await createChatServer({ host: '127.0.0.1', port: 0, userStorePath, state });
+    t.after(() => new Promise((resolve, reject) => {
+        server.close(error => error ? reject(error) : resolve());
+    }));
 
-        const response = await fetch(`${baseUrl}/api/messages?channel=general`, {
-            headers: { Cookie: cookie }
-        });
-        const messages = (await response.json()).messages;
-
-        assert.equal(messages.at(-1).kind, 'system');
-        assert.match(messages.at(-1).content, /AI service is temporarily unavailable/i);
-        assert.match(errors[0], /Ollama request failed \(503\)/);
-    } finally {
-        console.error = originalError;
-    }
+    assert.deepEqual(
+        [state.messages.get('general')[0].author, state.messages.get('general')[0].kind],
+        ['System', 'system']
+    );
+    const stored = JSON.parse(await fs.readFile(messageStorePath, 'utf8'));
+    assert.equal(stored.messages.general[0].author, 'System');
+    assert.equal(stored.messages.general[0].kind, 'system');
 });
 
 test('persists channel and DM history and secures private channels, reports, blocks, and voice signaling', async t => {

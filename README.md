@@ -1,26 +1,17 @@
 # Orbit Chat
 
-Orbit is a small, multi-channel chat site with an AI bot in the conversation. Create an account with a username, email address, and password, then sign in with either your username or email. Mention `@bot` when you want an AI reply.
+Orbit is a small, multi-channel chat site. The live site is [esakura.lol](https://esakura.lol). Create an account with a username, email address, and password, then sign in with either your username or email.
 
 ## Run locally
 
-1. Install Node.js 20 or later and [Ollama](https://ollama.com/download).
-2. Start Ollama and download a model:
-
-   ```sh
-   ollama serve
-   ollama pull llama3.2:1b
-   ```
-
-3. Start the site:
+1. Install Node.js 20 or later.
+2. Start the site:
 
    ```sh
    npm start
    ```
 
-4. Open `http://localhost:3000`.
-
-The bot uses Ollama at `http://127.0.0.1:11434` with `llama3.2:1b` by default. Set `OLLAMA_BASE_URL` or `OLLAMA_MODEL` to use a different Ollama server or model. Run Ollama in the same environment as the chat server. If it is unavailable, Orbit will explain what needs to be started or installed.
+3. Open `http://localhost:3000`.
 
 Account records are saved to `data/users.json` locally. Passwords are stored as salted scrypt hashes, not as plain text.
 
@@ -38,8 +29,6 @@ The latest 200 channel messages and direct-message history per conversation are 
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | Address the web server listens on |
 | `PORT` | `3000` | Web server port |
-| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server address |
-| `OLLAMA_MODEL` | `llama3.2:1b` | Model used for bot replies |
 | `USER_STORE_PATH` | `data/users.json`, or `users.json` in `RAILWAY_VOLUME_MOUNT_PATH` when set | Account data file |
 | `OWNER_BOOTSTRAP_PASSWORD` | unset | Password used to create the default developer account if it does not exist |
 | `OWNER_USERNAME` | `solosinned` | Username promoted to developer on startup |
@@ -48,7 +37,7 @@ The latest 200 channel messages and direct-message history per conversation are 
 
 For example, set `VOICE_ICE_SERVERS` to a JSON value like `[{"urls":"turn:turn.example.com:3478","username":"...","credential":"..."}]` using your TURN provider's values. Keep relay credentials in deployment secrets, not in source control, and prefer short-lived credentials because signed-in clients receive the ICE configuration.
 
-The site has `#general`, `#ai-lab`, and `#off-topic` channels, plus invite-only private channels and private one-to-one direct messages. Channel owners can rotate and share invite codes; a user can own up to 20 private channels, with 200 private channels maximum. The channel list shows unread counts and mentions, offers a jump to the next unread message, and lets each user mute notifications per channel. Start a DM from another member's profile; blocking a user hides their channel messages and prevents direct messages in either direction.
+The site has `#general`, `#ideas`, and `#off-topic` channels, plus invite-only private channels and private one-to-one direct messages. Channel owners can rotate and share invite codes; a user can own up to 20 private channels, with 200 private channels maximum. The channel list shows unread counts and mentions, offers a jump to the next unread message, and lets each user mute notifications per channel. Start a DM from another member's profile; blocking a user hides their channel messages and prevents direct messages in either direction.
 
 Channel messages and DMs support PNG/JPEG/WebP image attachments up to 4 MB and replies. Channel owners and staff can start polls and scheduled events with calendar downloads. Any member can report a message; staff can review, resolve, or dismiss reports from the Reports panel. The members panel separates online and offline accounts.
 

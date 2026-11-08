@@ -2,7 +2,7 @@
   "name": "orbit-chat",
   "version": "1.0.0",
   "private": true,
-  "description": "A multi-channel chat site with an Ollama-powered AI bot",
+  "description": "A multi-channel community chat site",
   "scripts": {
     "start": "node bot.js",
     "test": "node --test"
