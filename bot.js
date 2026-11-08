@@ -144,6 +144,7 @@ function createChatState() {
         authQueue: Promise.resolve(),
         messageQueue: Promise.resolve(),
         activityTimer: null,
+        activityDirtyAccounts: new Set(),
         userStorePath: null,
         supabaseClients: null,
         supabaseStore: null
@@ -312,6 +313,7 @@ async function loadAccounts(state, userStorePath, ownerBootstrapPassword) {
             decoration: 'none',
             profileEffect: 'none',
             onboarding: { completed: false, steps: [], interests: [], notifications: 'mentions' },
+    if (migrated && state.supabaseStore) state.supabaseStore.needsSave = true;
             role: 'developer',
             createdAt: null,
             announcementReadId: 0,
@@ -469,14 +471,22 @@ function trackActivity(state, session, now = Date.now()) {
     session.lastActiveAt = now;
     session.lastSeenAt = now;
     state.activityDirty = true;
+    state.activityDirtyAccounts.add(account.username.toLowerCase());
 }
 
 function persistActivity(state) {
     if (!state.activityDirty || (!state.userStorePath && !state.supabaseStore)) return Promise.resolve();
     state.activityDirty = false;
-    const saving = withAuthLock(state, () => saveAccounts(state, state.userStorePath));
+    const dirtyAccountKeys = [...state.activityDirtyAccounts];
+    state.activityDirtyAccounts.clear();
+    const saving = withAuthLock(state, () => state.supabaseStore
+        ? state.supabaseStore.saveAccountActivity(dirtyAccountKeys
+            .map(key => state.accounts.get(key))
+            .filter(Boolean))
+        : saveAccounts(state, state.userStorePath));
     state.activitySave = saving.catch(error => {
             state.activityDirty = true;
+            dirtyAccountKeys.forEach(key => state.activityDirtyAccounts.add(key));
             console.error(`Could not save account activity: ${error.message}`);
             throw error;
         });
@@ -486,11 +496,12 @@ function persistActivity(state) {
 async function markMessageCount(state, account) {
     account.messageCount += 1;
     state.activityDirty = true;
-    if (!state.supabaseStore) await persistActivity(state);
+    state.activityDirtyAccounts.add(account.username.toLowerCase());
+    await persistActivity(state);
 }
 
 async function saveAccounts(state, userStorePath) {
-    if (state.supabaseStore) return state.supabaseStore.save(state);
+    if (state.supabaseStore) return state.supabaseStore.saveAccounts(state);
     const directory = path.dirname(userStorePath);
     const temporaryPath = `${userStorePath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
     try {
@@ -527,6 +538,7 @@ async function loadAnnouncements(state, userStorePath) {
             state.nextAnnouncementId,
             ...state.announcements.map(announcement => announcement.id + 1)
         );
+        if (records.length !== state.announcements.length) state.supabaseStore.needsSave = true;
         return;
     }
     const announcementStorePath = `${userStorePath}.announcements.json`;
@@ -558,7 +570,7 @@ async function loadAnnouncements(state, userStorePath) {
 }
 
 async function saveAnnouncements(state) {
-    if (state.supabaseStore) return state.supabaseStore.save(state);
+    if (state.supabaseStore) return state.supabaseStore.saveAnnouncements(state);
     const announcementStorePath = state.announcementStorePath;
     if (!announcementStorePath) throw new Error('Announcement store path is not configured.');
     const directory = path.dirname(announcementStorePath);
@@ -660,7 +672,11 @@ function loadStoredMessages(state, stored, messageStorePath = 'Supabase app data
         )) {
             throw new Error(`Message store at ${messageStorePath} contains invalid messages for ${channel.id}.`);
         }
-        state.messages.set(channel.id, migrateBotMessages(messages.slice(-MESSAGE_HISTORY_LIMIT)));
+        const retainedMessages = messages.slice(-MESSAGE_HISTORY_LIMIT);
+        if (state.supabaseStore && (messages.length !== retainedMessages.length)) {
+            state.supabaseStore.needsSave = true;
+        }
+        state.messages.set(channel.id, migrateBotMessages(retainedMessages));
         state.messageRevisions.set(channel.id, Math.max(
             1,
             ...messages.map(message => Number.isSafeInteger(message.revision) ? message.revision + 1 : 1)
@@ -671,8 +687,13 @@ function loadStoredMessages(state, stored, messageStorePath = 'Supabase app data
             || messages.some(message => !validStoredMessage(message))) {
             throw new Error(`Message store at ${messageStorePath} contains invalid direct messages.`);
         }
-        state.directMessages.set(key, migrateBotMessages(messages.slice(-MESSAGE_HISTORY_LIMIT)));
+        const retainedMessages = messages.slice(-MESSAGE_HISTORY_LIMIT);
+        if (state.supabaseStore && messages.length !== retainedMessages.length) {
+            state.supabaseStore.needsSave = true;
+        }
+        state.directMessages.set(key, migrateBotMessages(retainedMessages));
     }
+    if (migratedBotMessages && state.supabaseStore) state.supabaseStore.needsSave = true;
     if (stored.reports.length > MAX_REPORTS || stored.reports.some(report => !report || !Number.isSafeInteger(report.id)
         || typeof report.channelId !== 'string' || !Number.isSafeInteger(report.messageId)
         || typeof report.reporter !== 'string' || typeof report.reason !== 'string'
@@ -981,7 +1002,7 @@ async function createChatServer({
         state.messageStorePath = null;
         state.announcementStorePath = null;
         await state.supabaseStore.save(state);
-    } else if (state.supabaseStore) {
+    } else if (state.supabaseStore && (state.supabaseStore.legacyState || state.supabaseStore.needsSave)) {
         await state.supabaseStore.save(state);
     }
     const server = http.createServer(async (request, response) => {
@@ -1562,6 +1583,9 @@ async function createChatServer({
                         const previousMessages = [...channelMessages];
                         const previousNextMessageId = state.nextMessageId;
                         const previousRevision = state.messageRevisions.get(body.channel);
+                        const evictedMessage = channelMessages.length >= MESSAGE_HISTORY_LIMIT
+                            ? channelMessages[0]
+                            : null;
                         const message = createMessage(
                             state,
                             body.channel,
@@ -1799,7 +1823,7 @@ async function createChatServer({
                 state.messageRevisions.set(id, 1);
                 state.typing.set(id, new Map());
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, { privateChannels: [channel] });
                 } catch (error) {
                     state.privateChannels.delete(id);
                     state.messages.delete(id);
@@ -2276,7 +2300,7 @@ async function createChatServer({
                 };
                 state.reports.push(report);
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, { reports: true });
                 } catch (error) {
                     state.reports.splice(0, state.reports.length, ...previousReports);
                     throw error;
@@ -2323,7 +2347,7 @@ async function createChatServer({
                 report.reviewedBy = session.userId;
                 report.reviewedAt = new Date().toISOString();
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, { reports: true });
                 } catch (error) {
                     Object.assign(report, previous);
                     throw error;
@@ -2547,10 +2571,13 @@ async function createChatServer({
                     recipientId
                 };
                 conversation.push(message);
-                if (conversation.length > MESSAGE_HISTORY_LIMIT) conversation.shift();
+                const removedMessage = conversation.length > MESSAGE_HISTORY_LIMIT ? conversation.shift() : null;
                 state.directMessages.set(key, conversation);
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, {
+                        directMessages: [{ key, message }],
+                        removedDirectMessages: removedMessage ? [{ key, id: removedMessage.id }] : []
+                    });
                 } catch (error) {
                     conversation.splice(0, conversation.length, ...previousConversation);
                     state.nextDirectMessageId = previousNextDirectMessageId;
@@ -2643,7 +2670,7 @@ async function createChatServer({
                 }
                 touchMessage(state, message);
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, { messages: [message] });
                 } catch (error) {
                     message.reactions = previous.reactions;
                     message.pinned = previous.pinned;
@@ -2723,7 +2750,9 @@ async function createChatServer({
                 }
                 touchMessage(state, message);
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, {
+                        messages: [message, ...previousRelated.map(item => item.message)]
+                    });
                 } catch (error) {
                     Object.assign(message, previousMessage);
                     for (const key of ['editedAt', 'deleted', 'image', 'pinned', 'replyTo']) {
@@ -2822,13 +2851,21 @@ async function createChatServer({
                 const previousMessages = [...channelMessages];
                 const previousNextMessageId = state.nextMessageId;
                 const previousRevision = state.messageRevisions.get(channel.id);
+                const evictedMessage = channelMessages.length >= MESSAGE_HISTORY_LIMIT
+                    ? channelMessages[0]
+                    : null;
                 const message = createMessage(state, channel.id, session.name, content);
                 message.image = image;
                 message.replyTo = replyTo;
                 await markMessageCount(state, currentAccount);
                 if (accountIsGhosted(currentAccount)) message.recipientUserId = session.userId;
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, {
+                        messages: [message],
+                        removedMessages: evictedMessage
+                            ? [{ channelId: channel.id, id: evictedMessage.id }]
+                            : []
+                    });
                 } catch (error) {
                     channelMessages.splice(0, channelMessages.length, ...previousMessages);
                     state.nextMessageId = previousNextMessageId;

@@ -17,7 +17,7 @@ Without Supabase configuration, local development saves account records to `data
 
 ### Configure Supabase for deployments
 
-1. Create a Supabase project and open the SQL Editor. Run [`supabase/schema.sql`](./supabase/schema.sql) to create the private `orbit_state` table.
+1. Create a Supabase project and open the SQL Editor. Run [`supabase/schema.sql`](./supabase/schema.sql) to create or upgrade the private `orbit_state` table. Before deploying this update, run the schema again so existing tables can store partitioned rows.
 2. In Railway, add these variables to the web service. Get the URL and keys from the Supabase project's API settings:
 
    | Railway variable | Supabase value |
@@ -29,9 +29,9 @@ Without Supabase configuration, local development saves account records to `data
 
    Keep `SUPABASE_SECRET_KEY` in Railway's server-side variables only. Never put it in browser code or commit it to GitHub. The publishable key is used by the server for Supabase Auth requests; the browser does not connect to Supabase directly.
 3. In Supabase Auth settings, enable the Email provider, add `https://esakura.lol/` to the allowed redirect URLs for password resets, and turn off email confirmation. New accounts are created by the server as already confirmed. Configure SMTP if you want password-reset emails to be delivered reliably.
-4. Deploy. The app checks that all required variables are present and reads/writes the `orbit_state` row in Postgres. The table has row-level security enabled and grants no direct access to browser roles.
+4. Deploy. The app checks that all required variables are present and reads/writes partitioned records in `orbit_state`. The table has row-level security enabled and grants no direct access to browser roles. On its first startup after this update, the app migrates the legacy `main` JSONB row into per-record rows and removes the old row only after the new rows have been saved successfully.
 
-The app's current persistence model stores its application data in one JSONB row. Run a single Railway web-service replica; multiple replicas would each hold an in-memory copy and could overwrite newer state. Login sessions are temporary and users may need to sign in again after a deploy, but Supabase Auth accounts and application data persist.
+Accounts, announcements, reports, and private channels are stored as individual records; each channel message and direct message is also stored as its own row. Frequently updated account activity counters are separate from profile data. This avoids rewriting the full chat history when one account or message changes. The primary key on `id` is the index used for these point updates; no additional index is needed. Run a single Railway web-service replica; multiple replicas would each hold an in-memory copy and could overwrite newer state. Login sessions are temporary and users may need to sign in again after a deploy, but Supabase Auth accounts and application data persist.
 
 For a one-time import of local JSON files, set `SUPABASE_IMPORT_JSON=true` for the first startup only, while the app can read the original `USER_STORE_PATH` and companion message/announcement files. Import runs only when the Supabase table is empty. Verify the data in the live app, then remove `SUPABASE_IMPORT_JSON`. Imported profile data and chat history are preserved, but old scrypt password hashes are discarded; each imported user must create a new Supabase Auth password by registering with the same username and email. If you have no old JSON files or backup, Supabase cannot recover the missing accounts.
 

@@ -10,27 +10,32 @@ const {
     createChatServer
 } = require('../bot.js');
 
-function createMockSupabaseClients() {
-    let storedRow = null;
+function createMockSupabaseClients(initialRows = []) {
+    const storedRows = new Map(initialRows.map(row => [row.id, row]));
     let upsertCount = 0;
+    const upsertedIdBatches = [];
     const user = { id: 'auth-user-1', email: 'alice@example.com' };
     const admin = {
         from(table) {
             assert.equal(table, 'orbit_state');
             return {
                 select() {
+                    return Promise.resolve({ data: [...storedRows.values()], error: null });
+                },
+                upsert: async rows => {
+                    upsertCount += 1;
+                    upsertedIdBatches.push(rows.map(row => row.id));
+                    for (const row of rows) storedRows.set(row.id, row);
+                    return { error: null };
+                },
+                delete() {
                     return {
-                        eq() {
-                            return {
-                                maybeSingle: async () => ({ data: storedRow, error: null })
-                            };
+                        in: async (column, ids) => {
+                            assert.equal(column, 'id');
+                            for (const id of ids) storedRows.delete(id);
+                            return { error: null };
                         }
                     };
-                },
-                upsert: async row => {
-                    upsertCount += 1;
-                    storedRow = row;
-                    return { error: null };
                 }
             };
         },
@@ -244,16 +249,29 @@ test('uses Supabase Auth for passwords and persists account profiles in Postgres
     const supabase = createMockSupabaseClients();
     const baseUrl = await startServer(t, { state, supabaseClients: supabase.clients });
     const registration = await join(baseUrl, 'Alice');
-    const storedAccount = supabase.getStoredRow().data.accounts[0];
+    const storedAccount = supabase.getStoredData().accounts[0];
     const upsertsBeforeMessage = supabase.getUpsertCount();
+    const batchesBeforeMessage = supabase.getUpsertedIdBatches().length;
     const messageResponse = await fetch(`${baseUrl}/api/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: registration.cookie },
         body: JSON.stringify({ channel: 'general', content: 'Stored in Supabase.' })
     });
     assert.equal(messageResponse.status, 201);
-    assert.equal(supabase.getUpsertCount(), upsertsBeforeMessage + 1);
-    assert.equal(supabase.getStoredRow().data.accounts[0].messageCount, 1);
+    assert.equal(supabase.getUpsertCount(), upsertsBeforeMessage + 2);
+    assert.deepEqual(
+        supabase.getUpsertedIdBatches().slice(batchesBeforeMessage),
+        [['accountActivity:alice'], ['message:general:1']]
+    );
+    assert.equal(supabase.getStoredData().accounts[0].messageCount, 1);
+    assert.equal(supabase.getStoredRows().some(row => row.id === 'main'), false);
+    const reaction = await fetch(`${baseUrl}/api/messages/1/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: registration.cookie },
+        body: JSON.stringify({ channel: 'general', emoji: '👍' })
+    });
+    assert.equal(reaction.status, 200);
+    assert.deepEqual(supabase.getUpsertedIdBatches().at(-1), ['message:general:1']);
     const login = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -297,6 +315,47 @@ test('uses Supabase Auth for passwords and persists account profiles in Postgres
     assert.equal(passwordUpdate.status, 200);
     assert.equal(restartedState.accounts.get('alice').authUserId, 'auth-user-1');
     assert.equal(restartedState.messages.get('general')[0].content, 'Stored in Supabase.');
+    assert.deepEqual(restartedState.messages.get('general')[0].reactions, [
+        { emoji: '👍', users: ['Alice'] }
+    ]);
+});
+
+test('migrates the legacy Supabase JSONB row into partitioned records', async t => {
+    const legacyMessage = {
+        id: 7,
+        channelId: 'general',
+        author: 'Alice',
+        content: 'Keep this legacy history.',
+        createdAt: new Date().toISOString(),
+        kind: 'user',
+        reactions: [],
+        pinned: false
+    };
+    const supabase = createMockSupabaseClients([{
+        id: 'main',
+        data: {
+            accounts: [],
+            announcements: [],
+            messages: { general: [legacyMessage] },
+            directMessages: {},
+            privateChannels: [],
+            reports: []
+        }
+    }]);
+    const server = await createChatServer({
+        host: '127.0.0.1',
+        port: 0,
+        userStorePath: path.join(os.tmpdir(), `supabase-legacy-${process.pid}.json`),
+        state: createChatState(),
+        supabaseClients: supabase.clients
+    });
+    t.after(() => new Promise((resolve, reject) => {
+        server.close(error => error ? reject(error) : resolve());
+    }));
+
+    assert.equal(supabase.getStoredRows().some(row => row.id === 'main'), false);
+    assert.equal(supabase.getStoredData().messages.general[0].content, 'Keep this legacy history.');
+    assert.equal(supabase.getStoredRows().some(row => row.id === 'message:general:7'), true);
 });
 
 test('imports local JSON once and removes password hashes from the Supabase profile data', async t => {
@@ -334,7 +393,7 @@ test('imports local JSON once and removes password hashes from the Supabase prof
         server.close(error => error ? reject(error) : resolve());
     }));
 
-    const imported = supabase.getStoredRow().data;
+    const imported = supabase.getStoredData();
     assert.equal(imported.accounts[0].username, 'LegacyUser');
     assert.equal(imported.accounts[0].authUserId, undefined);
     assert.equal(imported.accounts[0].salt, undefined);
