@@ -15,12 +15,10 @@ grant all on public.orbit_state to service_role;
 create or replace function public.touch_orbit_state_updated_at()
 returns trigger
 language plpgsql
-as $$
-begin
+as 'begin
     new.updated_at = now();
     return new;
-end;
-$$;
+end;';
 
 drop trigger if exists orbit_state_updated_at on public.orbit_state;
 create trigger orbit_state_updated_at
