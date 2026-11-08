@@ -3,11 +3,70 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { createSupabaseClients } = require('../supabase-store.js');
 const {
     getUserStorePath,
     createChatState,
     createChatServer
 } = require('../bot.js');
+
+function createMockSupabaseClients() {
+    let storedRow = null;
+    const user = { id: 'auth-user-1', email: 'alice@example.com' };
+    const admin = {
+        from(table) {
+            assert.equal(table, 'orbit_state');
+            return {
+                select() {
+                    return {
+                        eq() {
+                            return {
+                                maybeSingle: async () => ({ data: storedRow, error: null })
+                            };
+                        }
+                    };
+                },
+                upsert: async row => {
+                    storedRow = row;
+                    return { error: null };
+                }
+            };
+        },
+        auth: {
+            admin: {
+                deleteUser: async () => ({ error: null }),
+                updateUserById: async () => ({ error: null })
+            }
+        }
+    };
+    const auth = {
+        auth: {
+            signUp: async ({ email }) => ({
+                data: {
+                    user: { ...user, email, identities: [{ id: user.id }] },
+                    session: { access_token: 'signup-token' }
+                },
+                error: null
+            }),
+            signInWithPassword: async ({ email, password }) => ({
+                data: {
+                    user: email === user.email && password === 'safe-password-123' ? user : null,
+                    session: null
+                },
+                error: email === user.email && password === 'safe-password-123' ? null : new Error('Invalid credentials')
+            }),
+            resetPasswordForEmail: async () => ({ error: null }),
+            getUser: async token => ({
+                data: { user: token === 'recovery-token' ? user : null },
+                error: token === 'recovery-token' ? null : new Error('Invalid token')
+            })
+        }
+    };
+    return {
+        clients: { admin, auth },
+        getStoredRow: () => storedRow
+    };
+}
 
 test('stores accounts in the Railway volume when one is mounted', () => {
     assert.equal(
@@ -17,6 +76,14 @@ test('stores accounts in the Railway volume when one is mounted', () => {
     assert.equal(
         getUserStorePath({ RAILWAY_VOLUME_MOUNT_PATH: '/data', USER_STORE_PATH: '/accounts/users.json' }),
         '/accounts/users.json'
+    );
+});
+
+test('requires complete Supabase configuration rather than silently falling back', () => {
+    assert.equal(createSupabaseClients({}), null);
+    assert.throws(
+        () => createSupabaseClients({ SUPABASE_URL: 'https://project.supabase.co' }),
+        /SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SECRET_KEY/
     );
 });
 
@@ -153,6 +220,105 @@ test('creates an account including the former Orbit bot name and prevents duplic
     assert.match((await duplicateUsername.response.json()).error, /already registered/);
     assert.equal(duplicateEmail.response.status, 409);
     assert.equal(formerBotName.response.status, 201);
+});
+
+test('uses Supabase Auth for passwords and persists account profiles in Postgres', async t => {
+    const state = createChatState();
+    const supabase = createMockSupabaseClients();
+    const baseUrl = await startServer(t, { state, supabaseClients: supabase.clients });
+    const registration = await join(baseUrl, 'Alice');
+    const storedAccount = supabase.getStoredRow().data.accounts[0];
+    await fetch(`${baseUrl}/api/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: registration.cookie },
+        body: JSON.stringify({ channel: 'general', content: 'Stored in Supabase.' })
+    });
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: 'Alice', password: 'safe-password-123' })
+    });
+    const emailLogin = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: 'alice@example.com', password: 'safe-password-123' })
+    });
+    const recovery = await fetch(`${baseUrl}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: 'Alice' })
+    });
+    const passwordUpdate = await fetch(`${baseUrl}/api/auth/update-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: 'recovery-token', password: 'new-safe-password-123' })
+    });
+    const restartedState = createChatState();
+    const restartedServer = await createChatServer({
+        host: '127.0.0.1',
+        port: 0,
+        userStorePath: path.join(os.tmpdir(), `supabase-restart-${process.pid}.json`),
+        state: restartedState,
+        supabaseClients: supabase.clients
+    });
+    t.after(() => new Promise((resolve, reject) => {
+        restartedServer.close(error => error ? reject(error) : resolve());
+    }));
+
+    assert.equal(registration.response.status, 201);
+    assert.equal(registration.cookie?.startsWith('chat_session='), true);
+    assert.equal(storedAccount.authUserId, 'auth-user-1');
+    assert.equal(Object.hasOwn(storedAccount, 'salt'), false);
+    assert.equal(Object.hasOwn(storedAccount, 'passwordHash'), false);
+    assert.equal(login.status, 200);
+    assert.equal(emailLogin.status, 200);
+    assert.equal(recovery.status, 200);
+    assert.equal(passwordUpdate.status, 200);
+    assert.equal(restartedState.accounts.get('alice').authUserId, 'auth-user-1');
+    assert.equal(restartedState.messages.get('general')[0].content, 'Stored in Supabase.');
+});
+
+test('imports local JSON once and removes password hashes from the Supabase profile data', async t => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'orbit-supabase-import-'));
+    const userStorePath = path.join(directory, 'users.json');
+    t.after(() => fs.rm(directory, { recursive: true, force: true }));
+    const localServer = await createChatServer({ host: '127.0.0.1', port: 0, userStorePath });
+    const localBaseUrl = `http://127.0.0.1:${localServer.address().port}`;
+    const { cookie } = await join(localBaseUrl, 'LegacyUser');
+    await fetch(`${localBaseUrl}/api/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ channel: 'general', content: 'Keep this history.' })
+    });
+    await new Promise((resolve, reject) => localServer.close(error => error ? reject(error) : resolve()));
+
+    const originalImportSetting = process.env.SUPABASE_IMPORT_JSON;
+    process.env.SUPABASE_IMPORT_JSON = 'true';
+    const state = createChatState();
+    const supabase = createMockSupabaseClients();
+    let server;
+    try {
+        server = await createChatServer({
+            host: '127.0.0.1',
+            port: 0,
+            userStorePath,
+            state,
+            supabaseClients: supabase.clients
+        });
+    } finally {
+        if (originalImportSetting === undefined) delete process.env.SUPABASE_IMPORT_JSON;
+        else process.env.SUPABASE_IMPORT_JSON = originalImportSetting;
+    }
+    t.after(() => new Promise((resolve, reject) => {
+        server.close(error => error ? reject(error) : resolve());
+    }));
+
+    const imported = supabase.getStoredRow().data;
+    assert.equal(imported.accounts[0].username, 'LegacyUser');
+    assert.equal(imported.accounts[0].authUserId, undefined);
+    assert.equal(imported.accounts[0].salt, undefined);
+    assert.equal(imported.accounts[0].passwordHash, undefined);
+    assert.equal(imported.messages.general[0].content, 'Keep this history.');
 });
 
 test('signs in with either the username or email', async t => {

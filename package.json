@@ -6,5 +6,8 @@
   "scripts": {
     "start": "node bot.js",
     "test": "node --test"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0"
   }
 }

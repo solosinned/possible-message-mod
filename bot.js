@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
+const { createSupabaseClients, SupabaseStore } = require('./supabase-store.js');
 
 const HOST = resolveHost();
 const PORT = resolvePort();
@@ -143,26 +144,34 @@ function createChatState() {
         authQueue: Promise.resolve(),
         messageQueue: Promise.resolve(),
         activityTimer: null,
-        userStorePath: null
+        userStorePath: null,
+        supabaseClients: null,
+        supabaseStore: null
     };
 }
 
 async function loadAccounts(state, userStorePath, ownerBootstrapPassword) {
-    state.userStorePath = userStorePath;
-    let contents;
-    try {
-        contents = await fs.promises.readFile(userStorePath, 'utf8');
-    } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
+    state.userStorePath = state.supabaseStore ? null : userStorePath;
+    let records;
+    if (state.supabaseStore) {
+        records = state.supabaseStore.snapshot.accounts || [];
+    } else {
+        let contents;
+        try {
+            contents = await fs.promises.readFile(userStorePath, 'utf8');
+        } catch (error) {
+            if (error.code !== 'ENOENT') throw error;
+        }
+        records = contents === undefined ? [] : JSON.parse(contents);
     }
-    const records = contents === undefined ? [] : JSON.parse(contents);
     if (!Array.isArray(records)) throw new Error(`Account store at ${userStorePath} must contain a JSON array.`);
     let migrated = false;
     for (const account of records) {
         if (!account || typeof account.username !== 'string' || typeof account.email !== 'string'
             || !validUsername(account.username) || !validEmail(account.email)
-            || typeof account.salt !== 'string' || !/^[a-f0-9]{32}$/.test(account.salt)
-            || typeof account.passwordHash !== 'string' || !/^[a-f0-9]{128}$/.test(account.passwordHash)) {
+            || (!state.supabaseStore
+                && (typeof account.salt !== 'string' || !/^[a-f0-9]{32}$/.test(account.salt)
+                    || typeof account.passwordHash !== 'string' || !/^[a-f0-9]{128}$/.test(account.passwordHash)))) {
             throw new Error(`Account store at ${userStorePath} contains an invalid account record.`);
         }
         if (!ACCOUNT_ROLES.has(account.role)) {
@@ -283,9 +292,9 @@ async function loadAccounts(state, userStorePath, ownerBootstrapPassword) {
         }
         state.accounts.set(account.username.toLowerCase(), account);
     }
-    if (migrated) await saveAccounts(state, userStorePath);
+    if (migrated && !state.supabaseStore) await saveAccounts(state, userStorePath);
 
-    if (ownerBootstrapPassword && !state.accounts.has(OWNER_USERNAME)) {
+    if (ownerBootstrapPassword && !state.supabaseStore && !state.accounts.has(OWNER_USERNAME)) {
         if (ownerBootstrapPassword.length < 8 || ownerBootstrapPassword.length > 128) {
             throw new Error('OWNER_BOOTSTRAP_PASSWORD must be between 8 and 128 characters.');
         }
@@ -463,7 +472,7 @@ function trackActivity(state, session, now = Date.now()) {
 }
 
 function persistActivity(state) {
-    if (!state.activityDirty || !state.userStorePath) return Promise.resolve();
+    if (!state.activityDirty || (!state.userStorePath && !state.supabaseStore)) return Promise.resolve();
     state.activityDirty = false;
     const saving = withAuthLock(state, () => saveAccounts(state, state.userStorePath));
     state.activitySave = saving.catch(error => {
@@ -481,6 +490,7 @@ async function markMessageCount(state, account) {
 }
 
 async function saveAccounts(state, userStorePath) {
+    if (state.supabaseStore) return state.supabaseStore.save(state);
     const directory = path.dirname(userStorePath);
     const temporaryPath = `${userStorePath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
     try {
@@ -499,6 +509,26 @@ async function saveAccounts(state, userStorePath) {
 }
 
 async function loadAnnouncements(state, userStorePath) {
+    if (state.supabaseStore) {
+        const records = state.supabaseStore.snapshot.announcements || [];
+        if (!Array.isArray(records) || records.some(announcement =>
+            !announcement || !Number.isSafeInteger(announcement.id) || announcement.id < 1
+            || typeof announcement.title !== 'string' || announcement.title.length < 1
+            || announcement.title.length > MAX_ANNOUNCEMENT_TITLE_LENGTH
+            || typeof announcement.body !== 'string' || announcement.body.length < 1
+            || announcement.body.length > MAX_ANNOUNCEMENT_BODY_LENGTH
+            || !ANNOUNCEMENT_CATEGORIES.has(announcement.category || 'update')
+            || typeof announcement.author !== 'string' || typeof announcement.createdAt !== 'string'
+        )) {
+            throw new Error('Supabase app data contains invalid announcements.');
+        }
+        state.announcements = records.sort((a, b) => a.id - b.id).slice(-MAX_ANNOUNCEMENTS);
+        state.nextAnnouncementId = Math.max(
+            state.nextAnnouncementId,
+            ...state.announcements.map(announcement => announcement.id + 1)
+        );
+        return;
+    }
     const announcementStorePath = `${userStorePath}.announcements.json`;
     state.announcementStorePath = announcementStorePath;
     let contents;
@@ -528,6 +558,7 @@ async function loadAnnouncements(state, userStorePath) {
 }
 
 async function saveAnnouncements(state) {
+    if (state.supabaseStore) return state.supabaseStore.save(state);
     const announcementStorePath = state.announcementStorePath;
     if (!announcementStorePath) throw new Error('Announcement store path is not configured.');
     const directory = path.dirname(announcementStorePath);
@@ -569,6 +600,15 @@ function validStoredMessage(message) {
 }
 
 async function loadMessages(state, userStorePath) {
+    if (state.supabaseStore) {
+        const stored = state.supabaseStore.snapshot;
+        if (!stored.messages || typeof stored.messages !== 'object' || Array.isArray(stored.messages)
+            || !stored.directMessages || typeof stored.directMessages !== 'object' || Array.isArray(stored.directMessages)
+            || !Array.isArray(stored.privateChannels || []) || !Array.isArray(stored.reports || [])) {
+            throw new Error('Supabase app data contains invalid message data.');
+        }
+        return loadStoredMessages(state, stored);
+    }
     const messageStorePath = `${userStorePath}.messages.json`;
     state.messageStorePath = messageStorePath;
     let contents;
@@ -585,6 +625,10 @@ async function loadMessages(state, userStorePath) {
         || !Array.isArray(stored.privateChannels) || !Array.isArray(stored.reports)) {
         throw new Error(`Message store at ${messageStorePath} contains invalid data.`);
     }
+    return loadStoredMessages(state, stored, messageStorePath);
+}
+
+function loadStoredMessages(state, stored, messageStorePath = 'Supabase app data') {
     if (stored.privateChannels.length > MAX_PRIVATE_CHANNELS) {
         throw new Error(`Message store at ${messageStorePath} contains too many private channels.`);
     }
@@ -640,11 +684,12 @@ async function loadMessages(state, userStorePath) {
     state.nextMessageId = allMessages.reduce((latest, message) => Math.max(latest, message.id + 1), 1);
     state.nextDirectMessageId = [...state.directMessages.values()].flat()
         .reduce((latest, message) => Math.max(latest, message.id + 1), 1);
-    if (migratedBotMessages) await saveMessages(state);
+    if (migratedBotMessages && !state.supabaseStore) return saveMessages(state);
 }
 
 function saveMessages(state) {
     const save = async () => {
+        if (state.supabaseStore) return state.supabaseStore.save(state);
         if (!state.messageStorePath) throw new Error('Message store path is not configured.');
         const stored = {
             messages: Object.fromEntries(state.messages),
@@ -727,6 +772,38 @@ function checkAuthLimit(state, key) {
 async function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
     const derived = await scrypt(password, salt, 64);
     return { salt, passwordHash: derived.toString('hex') };
+}
+
+function createAccountRecord(username, email, passwordDetails = {}, authUserId = null) {
+    return {
+        username,
+        email,
+        ...passwordDetails,
+        ...(authUserId ? { authUserId } : {}),
+        bio: '',
+        avatar: null,
+        music: null,
+        status: 'online',
+        banner: null,
+        decoration: 'none',
+        profileEffect: 'none',
+        onboarding: { completed: false, steps: [], interests: [], notifications: 'mentions' },
+        role: DEVELOPER_USERNAMES.has(username.toLowerCase()) ? 'developer' : 'member',
+        createdAt: new Date().toISOString(),
+        announcementReadId: 0,
+        blockedUsers: [],
+        mutedChannels: {},
+        channelReadIds: {},
+        messageCount: 0,
+        activeSeconds: 0,
+        muted: false,
+        muteUntil: null,
+        mutedUntil: null,
+        banned: false,
+        ghosted: false,
+        ghostedUntil: null,
+        warnings: []
+    };
 }
 
 function createSession(state, account) {
@@ -858,11 +935,55 @@ async function createChatServer({
     port = resolvePort(),
     state = createChatState(),
     userStorePath = getUserStorePath(),
-    ownerBootstrapPassword = process.env.OWNER_BOOTSTRAP_PASSWORD
+    ownerBootstrapPassword = process.env.OWNER_BOOTSTRAP_PASSWORD,
+    supabaseClients = createSupabaseClients()
 } = {}) {
+    state.supabaseClients = supabaseClients;
+    let importingJson = false;
+    if (state.supabaseClients) {
+        state.supabaseStore = new SupabaseStore(state.supabaseClients.admin);
+        await state.supabaseStore.load();
+        importingJson = !state.supabaseStore.hasState && process.env.SUPABASE_IMPORT_JSON === 'true';
+        if (importingJson) {
+            const sourceFiles = [
+                userStorePath,
+                `${userStorePath}.messages.json`,
+                `${userStorePath}.announcements.json`
+            ];
+            let sourceFound = false;
+            for (const sourceFile of sourceFiles) {
+                try {
+                    await fs.promises.access(sourceFile);
+                    sourceFound = true;
+                    break;
+                } catch (error) {
+                    if (error.code !== 'ENOENT') throw error;
+                }
+            }
+            if (!sourceFound) {
+                throw new Error('SUPABASE_IMPORT_JSON is enabled, but no local JSON data files were found.');
+            }
+            state.supabaseStore = null;
+        }
+    }
     await loadAccounts(state, userStorePath, ownerBootstrapPassword);
     await loadAnnouncements(state, userStorePath);
     await loadMessages(state, userStorePath);
+    if (importingJson) {
+        for (const account of state.accounts.values()) {
+            delete account.salt;
+            delete account.passwordHash;
+        }
+        state.supabaseStore = new SupabaseStore(state.supabaseClients.admin);
+        state.supabaseStore.hasState = false;
+        state.supabaseStore.snapshot = {};
+        state.userStorePath = null;
+        state.messageStorePath = null;
+        state.announcementStorePath = null;
+        await state.supabaseStore.save(state);
+    } else if (state.supabaseStore) {
+        await state.supabaseStore.save(state);
+    }
     const server = http.createServer(async (request, response) => {
         const pathname = new URL(request.url || '/', 'http://localhost').pathname;
         response.setHeader('X-Frame-Options', 'DENY');
@@ -921,40 +1042,76 @@ async function createChatServer({
                     sendJson(response, 400, { error: 'Password must be between 8 and 128 characters.' });
                     return;
                 }
+                if (state.supabaseClients) {
+                    const result = await withAuthLock(state, async () => {
+                        const account = state.accounts.get(username.toLowerCase());
+                        const emailAccount = [...state.accounts.values()].find(item => item.email === email);
+                        const canRecoverProfile = account && account.email === email && !account.authUserId;
+                        if ((account && !canRecoverProfile) || (emailAccount && emailAccount !== account)) {
+                            return { status: 409, error: 'That username or email is already registered.' };
+                        }
+                        const { data, error } = await state.supabaseClients.auth.auth.signUp({
+                            email,
+                            password,
+                            options: {
+                                data: { username },
+                                emailRedirectTo: process.env.SUPABASE_AUTH_REDIRECT_URL || 'https://esakura.lol/'
+                            }
+                        });
+                        if (error) {
+                            const duplicate = /already registered|already exists/i.test(error.message);
+                            return {
+                                status: duplicate ? 409 : 400,
+                                error: duplicate
+                                    ? 'That email is already registered. Sign in or reset your password.'
+                                    : error.message
+                            };
+                        }
+                        if (!data.user || data.user.identities?.length === 0) {
+                            return { status: 409, error: 'That email is already registered. Sign in or reset your password.' };
+                        }
+                        const previousAccount = account ? { ...account } : null;
+                        const newAccount = account || createAccountRecord(username, email);
+                        newAccount.email = email;
+                        newAccount.authUserId = data.user.id;
+                        delete newAccount.salt;
+                        delete newAccount.passwordHash;
+                        state.accounts.set(username.toLowerCase(), newAccount);
+                        try {
+                            await saveAccounts(state, userStorePath);
+                        } catch (saveError) {
+                            if (previousAccount) Object.assign(newAccount, previousAccount);
+                            else state.accounts.delete(username.toLowerCase());
+                            try {
+                                await state.supabaseClients.admin.auth.admin.deleteUser(data.user.id);
+                            } catch (rollbackError) {
+                                console.error(`Could not remove Supabase account after profile save failure: ${rollbackError.message}`);
+                            }
+                            throw saveError;
+                        }
+                        return { status: 201, account: newAccount, session: data.session };
+                    });
+                    if (result.error) {
+                        sendJson(response, result.status, { error: result.error });
+                        return;
+                    }
+                    state.authAttempts.delete(`register:${request.socket.remoteAddress || 'unknown'}`);
+                    const headers = result.session ? createSession(state, result.account) : {};
+                    sendJson(response, 201, {
+                        user: result.session
+                            ? { name: result.account.username, username: result.account.username }
+                            : null,
+                        needsEmailConfirmation: !result.session
+                    }, headers);
+                    return;
+                }
                 const passwordDetails = await hashPassword(password);
                 const result = await withAuthLock(state, async () => {
                     const emailTaken = [...state.accounts.values()].some(account => account.email === email);
                     if (state.accounts.has(username.toLowerCase()) || emailTaken) {
                         return { status: 409, error: 'That username or email is already registered.' };
                     }
-                    const account = {
-                        username,
-                        email,
-                        ...passwordDetails,
-                        bio: '',
-                        avatar: null,
-                        music: null,
-                        status: 'online',
-                        banner: null,
-                        decoration: 'none',
-                        profileEffect: 'none',
-                        onboarding: { completed: false, steps: [], interests: [], notifications: 'mentions' },
-                        role: DEVELOPER_USERNAMES.has(username.toLowerCase()) ? 'developer' : 'member',
-                        createdAt: new Date().toISOString(),
-                        announcementReadId: 0,
-                        blockedUsers: [],
-                        mutedChannels: {},
-                        channelReadIds: {},
-                        messageCount: 0,
-                        activeSeconds: 0,
-                        muted: false,
-                        muteUntil: null,
-                        mutedUntil: null,
-                        banned: false,
-                        ghosted: false,
-                        ghostedUntil: null,
-                        warnings: []
-                    };
+                    const account = createAccountRecord(username, email, passwordDetails);
                     state.accounts.set(username.toLowerCase(), account);
                     try {
                         await saveAccounts(state, userStorePath);
@@ -993,6 +1150,32 @@ async function createChatServer({
                 const account = [...state.accounts.values()].find(item =>
                     item.username.toLowerCase() === identifier || item.email === identifier
                 );
+                if (state.supabaseClients) {
+                    if (!account?.authUserId) {
+                        sendJson(response, 401, {
+                            error: 'Username/email or password is incorrect. If this account came from older data, create an account with the same username and email to set a new password.'
+                        });
+                        return;
+                    }
+                    if (account.banned) {
+                        sendJson(response, 403, { error: 'This account is banned from the chat.' });
+                        return;
+                    }
+                    const { data, error } = await state.supabaseClients.auth.auth.signInWithPassword({
+                        email: account.email,
+                        password
+                    });
+                    if (error || data.user?.id !== account.authUserId) {
+                        sendJson(response, 401, { error: 'Username/email or password is incorrect.' });
+                        return;
+                    }
+                    state.authAttempts.delete(key);
+                    const headers = createSession(state, account);
+                    sendJson(response, 200, {
+                        user: { name: account.username, username: account.username }
+                    }, headers);
+                    return;
+                }
                 const salt = account?.salt || 'orbit-dummy-salt';
                 const expected = account ? Buffer.from(account.passwordHash, 'hex') : DUMMY_PASSWORD_HASH;
                 const actual = await scrypt(password.slice(0, 128), salt, expected.length);
@@ -1009,6 +1192,78 @@ async function createChatServer({
                 sendJson(response, 200, {
                     user: { name: account.username, username: account.username }
                 }, headers);
+            } catch (error) {
+                sendJson(response, error.statusCode || 400, { error: error.message });
+            }
+            return;
+        }
+
+        if (request.method === 'POST' && pathname === '/api/auth/reset-password') {
+            try {
+                if (!state.supabaseClients) {
+                    sendJson(response, 503, { error: 'Password recovery is not configured.' });
+                    return;
+                }
+                const resetKey = `reset:${request.socket.remoteAddress || 'unknown'}`;
+                if (!checkAuthLimit(state, resetKey)) {
+                    sendJson(response, 429, { error: 'Too many recovery attempts. Please wait 15 minutes and try again.' });
+                    return;
+                }
+                const body = await readJson(request);
+                const identifier = String(body.identifier || '').normalize('NFKC').trim().toLowerCase();
+                const account = [...state.accounts.values()].find(item =>
+                    item.username.toLowerCase() === identifier || item.email === identifier
+                );
+                if (account?.authUserId) {
+                    const redirectTo = process.env.SUPABASE_AUTH_REDIRECT_URL || 'https://esakura.lol/';
+                    const { error } = await state.supabaseClients.auth.auth.resetPasswordForEmail(
+                        account.email,
+                        { redirectTo }
+                    );
+                    if (error) throw new Error(`Could not send password reset email: ${error.message}`);
+                }
+                state.authAttempts.delete(resetKey);
+                sendJson(response, 200, {
+                    message: account && !account.authUserId
+                        ? 'This older profile needs to be linked first. Create an account with the same username and email to set a new password.'
+                        : 'If that account can be recovered, password reset instructions have been sent to its email.'
+                });
+            } catch (error) {
+                sendJson(response, error.statusCode || 400, { error: error.message });
+            }
+            return;
+        }
+
+        if (request.method === 'POST' && pathname === '/api/auth/update-password') {
+            try {
+                if (!state.supabaseClients) {
+                    sendJson(response, 503, { error: 'Password recovery is not configured.' });
+                    return;
+                }
+                const resetKey = `reset:${request.socket.remoteAddress || 'unknown'}`;
+                if (!checkAuthLimit(state, resetKey)) {
+                    sendJson(response, 429, { error: 'Too many recovery attempts. Please wait 15 minutes and try again.' });
+                    return;
+                }
+                const body = await readJson(request);
+                const accessToken = typeof body.accessToken === 'string' ? body.accessToken : '';
+                const password = typeof body.password === 'string' ? body.password : '';
+                if (password.length < 8 || password.length > 128) {
+                    sendJson(response, 400, { error: 'Password must be between 8 and 128 characters.' });
+                    return;
+                }
+                const { data, error } = await state.supabaseClients.auth.auth.getUser(accessToken);
+                if (error || !data.user) {
+                    sendJson(response, 401, { error: 'That password reset link is invalid or has expired.' });
+                    return;
+                }
+                const { error: updateError } = await state.supabaseClients.admin.auth.admin.updateUserById(
+                    data.user.id,
+                    { password }
+                );
+                if (updateError) throw new Error(`Could not update password: ${updateError.message}`);
+                state.authAttempts.delete(resetKey);
+                sendJson(response, 200, { message: 'Your password has been updated. Sign in with your new password.' });
             } catch (error) {
                 sendJson(response, error.statusCode || 400, { error: error.message });
             }

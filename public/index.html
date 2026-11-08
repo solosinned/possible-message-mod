@@ -343,7 +343,10 @@
         .join-card input:focus { border-color: #8f75d4; }
         .join-button { width: 100%; margin-top: 18px; padding: 12px; border: 0; border-radius: 8px; color: white; background: var(--accent); font-size: 13px; font-weight: 700; }
         .join-button:hover { background: var(--accent-hover); }
+        .join-secondary { display: block; margin: 12px auto 0; padding: 4px; border: 0; color: #bda8ef; background: transparent; font-size: 11px; }
+        .join-secondary[hidden] { display: none; }
         .join-error { min-height: 18px; margin-top: 12px; color: #ff9898; font-size: 12px; }
+        .join-error.success { color: #9bd6af; }
         .toast { position: fixed; right: 18px; bottom: 18px; z-index: 3; max-width: min(360px, calc(100% - 36px)); padding: 12px 16px; border: 1px solid #5a4828; border-radius: 9px; color: #e8cf9b; background: #28241b; font-size: 12px; }
         .toast[hidden] { display: none; }
         .profile-dialog { width: min(420px, calc(100% - 32px)); max-width: 420px; max-height: 90vh; padding: 0; overflow-y: auto; border: 1px solid #41414b; border-radius: 15px; color: #e6e8ef; background: #222329; box-shadow: 0 22px 70px #000a; }
@@ -692,9 +695,23 @@
                 </div>
             </div>
             <button class="join-button" id="auth-submit" type="submit">Sign in</button>
+            <button class="join-secondary" id="forgot-password" type="button">Forgot password?</button>
             <div class="join-error" id="join-error" role="alert"></div>
         </form>
     </section>
+    <dialog class="announcement-dialog" id="password-reset-dialog" aria-labelledby="password-reset-title">
+        <form class="announcement-form" id="password-reset-form">
+            <h2 id="password-reset-title">Set a new password</h2>
+            <p>Choose a password with at least 8 characters.</p>
+            <label for="password-reset-input">New password
+                <input id="password-reset-input" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+            </label>
+            <div class="announcement-error" id="password-reset-error" role="alert"></div>
+            <div class="announcement-buttons">
+                <button class="primary" type="submit">Update password</button>
+            </div>
+        </form>
+    </dialog>
     <dialog class="onboarding-dialog" id="onboarding-dialog" aria-labelledby="onboarding-title">
         <div class="onboarding-content">
             <header class="onboarding-header">
@@ -3915,11 +3932,37 @@
             document.getElementById('register-tab').classList.toggle('active', registering);
             document.getElementById('register-tab').setAttribute('aria-selected', String(registering));
             document.getElementById('auth-submit').textContent = registering ? 'Create account' : 'Sign in';
+            document.getElementById('forgot-password').hidden = registering;
             joinError.textContent = '';
+            joinError.classList.remove('success');
         }
 
         document.getElementById('login-tab').addEventListener('click', () => setAuthMode('login'));
         document.getElementById('register-tab').addEventListener('click', () => setAuthMode('register'));
+        document.getElementById('forgot-password').addEventListener('click', async event => {
+            const button = event.currentTarget;
+            const identifier = document.getElementById('auth-identifier').value.trim();
+            if (!identifier) {
+                joinError.classList.remove('success');
+                joinError.textContent = 'Enter your username or email first.';
+                return;
+            }
+            button.disabled = true;
+            joinError.textContent = '';
+            joinError.classList.remove('success');
+            try {
+                const result = await request('/api/auth/reset-password', {
+                    method: 'POST',
+                    body: JSON.stringify({ identifier })
+                });
+                joinError.classList.add('success');
+                joinError.textContent = result.message;
+            } catch (error) {
+                joinError.textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        });
 
         document.getElementById('auth-form').addEventListener('submit', async event => {
             event.preventDefault();
@@ -3942,9 +3985,50 @@
                     method: 'POST',
                     body: JSON.stringify(payload)
                 });
+                document.getElementById('password-reset-form').addEventListener('submit', async event => {
+                    event.preventDefault();
+                    const errorElement = document.getElementById('password-reset-error');
+                    const submit = event.currentTarget.querySelector('button[type="submit"]');
+                    const accessToken = new URLSearchParams(location.hash.slice(1)).get('access_token');
+                    if (!accessToken) {
+                        errorElement.textContent = 'The password reset link is invalid or has expired.';
+                        return;
+                    }
+                    submit.disabled = true;
+                    errorElement.textContent = '';
+                    try {
+                        const result = await request('/api/auth/update-password', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                accessToken,
+                                password: document.getElementById('password-reset-input').value
+                            })
+                        });
+                        document.getElementById('password-reset-dialog').close();
+                        history.replaceState(null, '', `${location.pathname}${location.search}`);
+                        document.getElementById('auth-password').value = '';
+                        joinError.classList.add('success');
+                        joinError.textContent = result.message;
+                    } catch (error) {
+                        errorElement.textContent = error.message;
+                    } finally {
+                        submit.disabled = false;
+                    }
+                });
+                const passwordRecovery = new URLSearchParams(location.hash.slice(1));
+                if (passwordRecovery.get('type') === 'recovery' && passwordRecovery.has('access_token')) {
+                    document.getElementById('password-reset-dialog').showModal();
+                    document.getElementById('password-reset-input').focus();
+                }
+                if (result.needsEmailConfirmation) {
+                    joinError.classList.add('success');
+                    joinError.textContent = 'Check your email to confirm your account, then sign in.';
+                    return;
+                }
                 setUser(result.user);
                 document.getElementById('auth-password').value = '';
             } catch (error) {
+                joinError.classList.remove('success');
                 joinError.textContent = error.message;
             } finally {
                 button.disabled = false;
