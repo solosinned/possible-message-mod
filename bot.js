@@ -294,6 +294,7 @@ async function loadAccounts(state, userStorePath, ownerBootstrapPassword) {
         state.accounts.set(account.username.toLowerCase(), account);
     }
     if (migrated && !state.supabaseStore) await saveAccounts(state, userStorePath);
+    if (migrated && state.supabaseStore) state.supabaseStore.needsSave = true;
 
     if (ownerBootstrapPassword && !state.supabaseStore && !state.accounts.has(OWNER_USERNAME)) {
         if (ownerBootstrapPassword.length < 8 || ownerBootstrapPassword.length > 128) {
@@ -313,7 +314,6 @@ async function loadAccounts(state, userStorePath, ownerBootstrapPassword) {
             decoration: 'none',
             profileEffect: 'none',
             onboarding: { completed: false, steps: [], interests: [], notifications: 'mentions' },
-    if (migrated && state.supabaseStore) state.supabaseStore.needsSave = true;
             role: 'developer',
             createdAt: null,
             announcementReadId: 0,
