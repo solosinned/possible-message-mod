@@ -57,6 +57,21 @@
             --input-bg: #352630;
             --theme-control-bg: #30232c;
         }
+        :root[data-theme="orange"] {
+            --bg: #1f1915;
+            --side: #292019;
+            --panel: #34271f;
+            --muted: #bda997;
+            --line: #4a382c;
+            --accent: #f59e0b;
+            --accent-deep: #ad5b13;
+            --accent-hover: #ffb547;
+            --accent-soft: #49301e;
+            --canvas-contrast: #241b16;
+            --header-bg: #2a201a;
+            --input-bg: #35271e;
+            --theme-control-bg: #302219;
+        }
         * { box-sizing: border-box; }
         body { margin: 0; min-width: 320px; height: 100vh; height: 100dvh; overflow: hidden; background: var(--bg); }
         button, input, textarea { font: inherit; }
@@ -595,6 +610,7 @@
                     <option value="violet">Violet theme</option>
                     <option value="ocean">Ocean theme</option>
                     <option value="rose">Rose theme</option>
+                    <option value="orange">Orange theme</option>
                 </select>
                 <div class="notification-wrap">
                     <button class="notification-toggle" id="notification-toggle" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="notification-panel" hidden>
@@ -991,7 +1007,7 @@
 
     <script>
         const themeSelect = document.getElementById('theme-select');
-        const availableThemes = new Set(['violet', 'ocean', 'rose']);
+        const availableThemes = new Set(['violet', 'ocean', 'rose', 'orange']);
         let savedTheme = 'violet';
         try {
             const storedTheme = localStorage.getItem('orbit-theme');

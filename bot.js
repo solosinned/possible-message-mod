@@ -486,7 +486,7 @@ function persistActivity(state) {
 async function markMessageCount(state, account) {
     account.messageCount += 1;
     state.activityDirty = true;
-    await persistActivity(state);
+    if (!state.supabaseStore) await persistActivity(state);
 }
 
 async function saveAccounts(state, userStorePath) {

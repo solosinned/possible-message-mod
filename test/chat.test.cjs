@@ -12,6 +12,7 @@ const {
 
 function createMockSupabaseClients() {
     let storedRow = null;
+    let upsertCount = 0;
     const user = { id: 'auth-user-1', email: 'alice@example.com' };
     const admin = {
         from(table) {
@@ -27,6 +28,7 @@ function createMockSupabaseClients() {
                     };
                 },
                 upsert: async row => {
+                    upsertCount += 1;
                     storedRow = row;
                     return { error: null };
                 }
@@ -74,7 +76,8 @@ function createMockSupabaseClients() {
     };
     return {
         clients: { admin, auth },
-        getStoredRow: () => storedRow
+        getStoredRow: () => storedRow,
+        getUpsertCount: () => upsertCount
     };
 }
 
@@ -134,6 +137,10 @@ test('serves the chat app with security headers and no external chat integration
     assert.doesNotMatch(page, /@bot|Ollama|bot-badge/);
     assert.match(page, /Username or email/);
     assert.match(page, /Create account/);
+    assert.match(page, /:root\[data-theme="orange"\]/);
+    assert.match(page, /--accent: #f59e0b/);
+    assert.match(page, /<option value="orange">Orange theme<\/option>/);
+    assert.match(page, /'violet', 'ocean', 'rose', 'orange'/);
     assert.match(page, /id="attach-image"/);
     assert.match(page, /message-reply-button/);
     assert.match(page, /\.message\.has-reply \.message-text \{/);
@@ -238,11 +245,15 @@ test('uses Supabase Auth for passwords and persists account profiles in Postgres
     const baseUrl = await startServer(t, { state, supabaseClients: supabase.clients });
     const registration = await join(baseUrl, 'Alice');
     const storedAccount = supabase.getStoredRow().data.accounts[0];
-    await fetch(`${baseUrl}/api/messages`, {
+    const upsertsBeforeMessage = supabase.getUpsertCount();
+    const messageResponse = await fetch(`${baseUrl}/api/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: registration.cookie },
         body: JSON.stringify({ channel: 'general', content: 'Stored in Supabase.' })
     });
+    assert.equal(messageResponse.status, 201);
+    assert.equal(supabase.getUpsertCount(), upsertsBeforeMessage + 1);
+    assert.equal(supabase.getStoredRow().data.accounts[0].messageCount, 1);
     const login = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
