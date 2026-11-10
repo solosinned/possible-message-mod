@@ -23,6 +23,7 @@ const ROLE_ORDER = { developer: 0, owner: 1, admin: 2, moderator: 3, member: 4 }
 const MAX_ANNOUNCEMENTS = 100;
 const MAX_ANNOUNCEMENT_TITLE_LENGTH = 100;
 const MAX_ANNOUNCEMENT_BODY_LENGTH = 1000;
+const MAX_ANNOUNCEMENT_IMAGE_BYTES = 512 * 1024;
 const MAX_CHANNEL_NAME_LENGTH = 32;
 const MAX_CHANNEL_TOPIC_LENGTH = 120;
 const MAX_PRIVATE_CHANNELS = 200;
@@ -36,8 +37,55 @@ const ANNOUNCEMENT_CATEGORIES = new Set(['update', 'event', 'urgent']);
 const REACTION_EMOJIS = new Set(['👍', '❤️', '😂', '🎉', '😮']);
 const TYPING_TTL_MS = 5000;
 const PROFILE_STATUSES = new Set(['online', 'away', 'busy']);
-const PROFILE_DECORATIONS = new Set(['none', 'orbit', 'halo', 'aurora']);
-const PROFILE_EFFECTS = new Set(['none', 'aurora', 'starlight', 'ember']);
+const PROFILE_DECORATION_FILES = [
+    'animated',
+    'animated (1)',
+    'animated (2)',
+    'animated (3)',
+    'animated (4)',
+    'animated (5)',
+    'animated (6)',
+    'animated (8)',
+    'animated (9)',
+    'animated (10)'
+];
+const PROFILE_EFFECT_FILES = [
+    '3b74ba84c8941ad0d91afafd00d169b8124cd2956fcaa7fda3b784a6edafcba6',
+    '4049f02d5fe6eda17cf66dc047480e02c669b7022255203a996557086da2c44f.png',
+    '4394a572d2d2b1eddbc253c6c77e3725ea55a379ace4a998267afe37b2fe352b',
+    '66c89674b16a76da71de09b35d219e09da3aa9f7f808247e4e36c7ab5e293aa6',
+    '84168a5adc7db3805121683b85f398b21ebfd9e0396bc9a2bbf70591acb482fb',
+    '8d3e81b35093e2b431fa53eaaa575bf32522316f56054f7a81fa0ddfa689b7ad',
+    'b3e6eeebda58d89cbd81b5a521f8f05c7bb4dd0e2d94fa02ef18e3ec865963f9',
+    'be67d92063f863236b59b19e84ab4a82c43d9cf99b1640636c69cfecad3dbcb2',
+    'fa8b3fac80a88fcf24cfee30e5f0b814880bde1fb466d5835aa573aa718d2862'
+];
+const PROFILE_DECORATIONS = new Set([
+    'none',
+    'orbit',
+    'halo',
+    'aurora',
+    ...PROFILE_DECORATION_FILES.map((_, index) => `discord-decoration-${index + 1}`)
+]);
+const PROFILE_EFFECTS = new Set([
+    'none',
+    'aurora',
+    'starlight',
+    'ember',
+    ...PROFILE_EFFECT_FILES.map((_, index) => `discord-effect-${index + 1}`),
+    'discord-effect-nameplate'
+]);
+const PROFILE_ASSET_FILES = Object.fromEntries([
+    ...PROFILE_DECORATION_FILES.map((file, index) => [
+        `/profile-assets/decoration-${index + 1}.png`,
+        path.join(__dirname, 'assets', 'discord stuff', file)
+    ]),
+    ...PROFILE_EFFECT_FILES.map((file, index) => [
+        `/profile-assets/effect-${index + 1}.png`,
+        path.join(__dirname, 'assets', 'discord stuff', file)
+    ]),
+    ['/profile-assets/effect-nameplate.png', path.join(__dirname, 'assets', 'discord stuff', 'animated (7)')]
+]);
 const ONBOARDING_STEPS = new Set(['channels', 'profile', 'message']);
 const ONBOARDING_INTERESTS = new Set(['conversation', 'ideas', 'games', 'music']);
 const ONBOARDING_NOTIFICATIONS = new Set(['all', 'mentions', 'quiet']);
@@ -528,6 +576,7 @@ async function loadAnnouncements(state, userStorePath) {
             || announcement.title.length > MAX_ANNOUNCEMENT_TITLE_LENGTH
             || typeof announcement.body !== 'string' || announcement.body.length < 1
             || announcement.body.length > MAX_ANNOUNCEMENT_BODY_LENGTH
+            || (announcement.image != null && !validProfileImage(announcement.image, MAX_ANNOUNCEMENT_IMAGE_BYTES))
             || !ANNOUNCEMENT_CATEGORIES.has(announcement.category || 'update')
             || typeof announcement.author !== 'string' || typeof announcement.createdAt !== 'string'
         )) {
@@ -557,6 +606,7 @@ async function loadAnnouncements(state, userStorePath) {
         || announcement.title.length > MAX_ANNOUNCEMENT_TITLE_LENGTH
         || typeof announcement.body !== 'string' || announcement.body.length < 1
         || announcement.body.length > MAX_ANNOUNCEMENT_BODY_LENGTH
+        || (announcement.image != null && !validProfileImage(announcement.image, MAX_ANNOUNCEMENT_IMAGE_BYTES))
         || !ANNOUNCEMENT_CATEGORIES.has(announcement.category || 'update')
         || typeof announcement.author !== 'string' || typeof announcement.createdAt !== 'string'
     )) {
@@ -1021,6 +1071,31 @@ async function createChatServer({
             return;
         }
 
+        if (request.method === 'GET' && Object.hasOwn(PROFILE_ASSET_FILES, pathname)) {
+            const assetPath = PROFILE_ASSET_FILES[pathname];
+            let size;
+            try {
+                size = fs.statSync(assetPath).size;
+            } catch (error) {
+                console.error(`Could not read profile asset ${pathname}: ${error.message}`);
+                sendJson(response, 500, { error: 'Profile asset could not be loaded.' });
+                return;
+            }
+            response.writeHead(200, {
+                'Content-Type': 'image/png',
+                'Content-Length': size,
+                'Cache-Control': 'public, max-age=31536000, immutable',
+                'X-Content-Type-Options': 'nosniff'
+            });
+            const stream = fs.createReadStream(assetPath);
+            stream.on('error', error => {
+                console.error(`Could not stream profile asset ${pathname}: ${error.message}`);
+                response.destroy(error);
+            });
+            stream.pipe(response);
+            return;
+        }
+
         if (pathname.startsWith('/api/')) {
             response.setHeader('X-Content-Type-Options', 'nosniff');
             response.setHeader('Cache-Control', 'no-store');
@@ -1368,11 +1443,13 @@ async function createChatServer({
                 const title = typeof body.title === 'string' ? body.title.trim() : '';
                 const content = typeof body.body === 'string' ? body.body.trim() : '';
                 const category = body.category || 'update';
+                const image = body.image === undefined || body.image === null ? null : body.image;
                 if (!title || title.length > MAX_ANNOUNCEMENT_TITLE_LENGTH
                     || !content || content.length > MAX_ANNOUNCEMENT_BODY_LENGTH
+                    || (image !== null && !validProfileImage(image, MAX_ANNOUNCEMENT_IMAGE_BYTES))
                     || !ANNOUNCEMENT_CATEGORIES.has(category)) {
                     sendJson(response, 400, {
-                        error: 'Enter an announcement title and message, and choose a valid announcement category.'
+                        error: 'Enter a title and message, choose a valid category, and attach a supported image up to 512 KB.'
                     });
                     return;
                 }
@@ -1386,6 +1463,7 @@ async function createChatServer({
                             id,
                             title,
                             body: content,
+                            image,
                             category,
                             author: signedInAccount.username,
                             createdAt: new Date().toISOString()
@@ -1916,6 +1994,9 @@ async function createChatServer({
                 const previousMessages = [...channelMessages];
                 const previousNextMessageId = state.nextMessageId;
                 const previousRevision = state.messageRevisions.get(channel.id);
+                const evictedMessage = channelMessages.length >= MESSAGE_HISTORY_LIMIT
+                    ? channelMessages[0]
+                    : null;
                 if (pathname === '/api/polls') {
                     const question = typeof body.question === 'string' ? body.question.trim() : '';
                     const options = Array.isArray(body.options)

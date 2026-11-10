@@ -81,8 +81,41 @@ function createMockSupabaseClients(initialRows = []) {
     };
     return {
         clients: { admin, auth },
-        getStoredRow: () => storedRow,
-        getUpsertCount: () => upsertCount
+        getStoredRows: () => [...storedRows.values()],
+        getStoredData: () => {
+            const result = {
+                accounts: [],
+                announcements: [],
+                messages: {},
+                directMessages: {},
+                privateChannels: [],
+                reports: []
+            };
+            const accountActivity = new Map();
+            for (const { id, data } of storedRows.values()) {
+                const parts = id.split(':');
+                if (id === 'main') Object.assign(result, data);
+                else if (parts[0] === 'account') result.accounts.push(data);
+                else if (parts[0] === 'accountActivity') {
+                    accountActivity.set(decodeURIComponent(parts[1]), data);
+                }
+                else if (parts[0] === 'announcement') result.announcements.push(data);
+                else if (parts[0] === 'privateChannel') result.privateChannels.push(data);
+                else if (parts[0] === 'report') result.reports.push(data);
+                else if (parts[0] === 'message') {
+                    (result.messages[decodeURIComponent(parts[1])] ||= []).push(data);
+                } else if (parts[0] === 'directMessage') {
+                    (result.directMessages[decodeURIComponent(parts[1])] ||= []).push(data);
+                }
+            }
+            result.accounts = result.accounts.map(account => ({
+                ...account,
+                ...(accountActivity.get(account.username.toLowerCase()) || {})
+            }));
+            return result;
+        },
+        getUpsertCount: () => upsertCount,
+        getUpsertedIdBatches: () => upsertedIdBatches
     };
 }
 
@@ -206,6 +239,11 @@ test('serves the chat app with security headers and no external chat integration
     assert.match(page, /id="onboarding-checklist"/);
     assert.match(page, /id="onboarding-open"/);
     assert.match(page, /decoration-orbit/);
+    assert.match(page, /function setAvatarDecoration/);
+    assert.match(page, /setAvatarDecoration\(avatar, authorProfile\?\.decoration\)/);
+    assert.match(page, /setAvatarDecoration\(avatar, user\.decoration\)/);
+    assert.match(page, /function refreshMessageAvatars/);
+    assert.match(page, /\.avatar img\.avatar-decoration-art/);
     assert.match(page, /memberRoleIcons/);
     assert.match(page, /\.effect-aurora/);
     assert.match(page, /profile-rank-label/);
@@ -513,13 +551,29 @@ test('developer broadcasts announcements to every signed-in account', async t =>
     const created = await fetch(announcementUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: developerCookie },
-        body: JSON.stringify({ title: 'Community update', body: 'Welcome to the new announcement system.', category: 'event' })
+        body: JSON.stringify({
+            title: 'Community update',
+            body: 'Welcome to the new announcement system.',
+            category: 'event',
+            image: 'data:image/png;base64,iVBORw0KGgo='
+        })
     });
     const { announcement } = await created.json();
     assert.equal(created.status, 201);
     assert.equal(announcement.author, 'solosinned');
     assert.equal(announcement.title, 'Community update');
     assert.equal(announcement.category, 'event');
+    assert.equal(announcement.image, 'data:image/png;base64,iVBORw0KGgo=');
+    const invalidImage = await fetch(announcementUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: developerCookie },
+        body: JSON.stringify({
+            title: 'Invalid image',
+            body: 'This image should be rejected.',
+            image: 'data:image/svg+xml,<svg/>'
+        })
+    });
+    assert.equal(invalidImage.status, 400);
     const invalidCategory = await fetch(announcementUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: developerCookie },
@@ -915,6 +969,7 @@ test('saves profile pictures, bios, and status and returns public profiles', asy
     assert.equal(activeUser.username, 'ProfileUser');
     assert.equal(activeUser.status, 'busy');
     assert.equal(activeUser.avatar, avatar);
+    assert.equal(activeUser.decoration, 'orbit');
     assert.equal(Object.hasOwn(activeUser, 'music'), false);
     assert.equal(Object.hasOwn(activeUser, 'banner'), false);
     assert.equal(Object.hasOwn(activeUser, 'decorationImage'), false);
@@ -924,6 +979,65 @@ test('saves profile pictures, bios, and status and returns public profiles', asy
     assert.equal(stored[0].status, 'busy');
     assert.equal(typeof stored[0].email, 'string');
     assert.equal(typeof stored[0].passwordHash, 'string');
+});
+
+test('serves animated profile assets and accepts them in profile settings', async t => {
+    const baseUrl = await startServer(t);
+    const assetPaths = [
+        ...Array.from({ length: 10 }, (_, index) => `/profile-assets/decoration-${index + 1}.png`),
+        ...Array.from({ length: 9 }, (_, index) => `/profile-assets/effect-${index + 1}.png`),
+        '/profile-assets/effect-nameplate.png'
+    ];
+    for (const assetPath of assetPaths) {
+        const response = await fetch(`${baseUrl}${assetPath}`);
+        const bytes = Buffer.from(await response.arrayBuffer());
+
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get('content-type'), 'image/png');
+        assert.match(response.headers.get('cache-control'), /immutable/);
+        assert.deepEqual(bytes.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+        assert.ok(bytes.includes(Buffer.from('acTL')), `${assetPath} is an animated PNG`);
+        if (assetPath.includes('/effect-')) {
+            let offset = 8;
+            let playCount;
+            let frameCount = 0;
+            while (offset + 12 <= bytes.length) {
+                const length = bytes.readUInt32BE(offset);
+                const type = bytes.toString('ascii', offset + 4, offset + 8);
+                const dataOffset = offset + 8;
+                if (type === 'acTL') playCount = bytes.readUInt32BE(dataOffset + 4);
+                if (type === 'fcTL') {
+                    const numerator = bytes.readUInt16BE(dataOffset + 20);
+                    const denominator = bytes.readUInt16BE(dataOffset + 22) || 100;
+                    assert.ok(numerator / denominator >= 1 / 6, `${assetPath} should animate gently`);
+                    frameCount += 1;
+                }
+                offset += length + 12;
+                if (type === 'IEND') break;
+            }
+            assert.equal(playCount, 0, `${assetPath} should loop continuously`);
+            assert.ok(frameCount > 0, `${assetPath} should contain animation frames`);
+        }
+    }
+    assert.equal((await fetch(`${baseUrl}/profile-assets/effect-1.png?v=2`)).status, 200);
+
+    const { cookie } = await join(baseUrl, 'AnimatedProfile');
+    const update = await fetch(`${baseUrl}/api/profile/me`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({
+            bio: '',
+            decoration: 'discord-decoration-10',
+            profileEffect: 'discord-effect-nameplate'
+        })
+    });
+    const saved = await update.json();
+    const ownProfile = await fetch(`${baseUrl}/api/profile/me`, { headers: { Cookie: cookie } });
+
+    assert.equal(update.status, 200);
+    assert.equal(saved.profile.decoration, 'discord-decoration-10');
+    assert.equal(saved.profile.profileEffect, 'discord-effect-nameplate');
+    assert.deepEqual((await ownProfile.json()).profile, saved.profile);
 });
 
 test('persists onboarding progress and validates onboarding preferences', async t => {

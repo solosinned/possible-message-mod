@@ -124,8 +124,13 @@
         .staff-actions-open:hover { background: #393246; }
         .staff-actions-open[hidden] { display: none; }
         .profile { position: relative; display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 11px 9px; border-top: 1px solid var(--line); background: var(--header-bg); }
-        .avatar { display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: white; background: #7158a8; font-size: 14px; font-weight: 700; }
+        .avatar { position: relative; display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: white; background: #7158a8; font-size: 14px; font-weight: 700; }
         .avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+        .avatar img.avatar-decoration-art { position: absolute; z-index: 2; inset: -5px; width: calc(100% + 10px); height: calc(100% + 10px); border-radius: 0; object-fit: contain; pointer-events: none; }
+        .avatar.decoration-orbit::after, .avatar.decoration-halo::after, .avatar.decoration-aurora::after { position: absolute; z-index: 2; pointer-events: none; }
+        .avatar.decoration-orbit::after { inset: -4px; border: 2px solid #9a7aff; border-radius: 50%; content: ""; transform: rotate(-24deg) scaleX(1.13); }
+        .avatar.decoration-halo::after { top: -8px; right: -7px; content: "✦"; color: #ffe398; font-size: 19px; text-shadow: 0 2px 9px #f2a94f; }
+        .avatar.decoration-aurora::after { inset: -4px; border: 3px solid transparent; border-radius: 50%; background: linear-gradient(135deg, #78f0cb, #aa82ff, #f8a77a) border-box; -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask-composite: exclude; content: ""; }
         .avatar.small { width: 31px; height: 31px; font-size: 12px; }
         .profile-copy { min-width: 0; flex: 1; }
         .profile-name { overflow: hidden; color: #f0eff4; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
@@ -358,9 +363,10 @@
         .toast { position: fixed; right: 18px; bottom: 18px; z-index: 3; max-width: min(360px, calc(100% - 36px)); padding: 12px 16px; border: 1px solid #5a4828; border-radius: 9px; color: #e8cf9b; background: #28241b; font-size: 12px; }
         .toast[hidden] { display: none; }
         .profile-dialog { width: min(420px, calc(100% - 32px)); max-width: 420px; max-height: 90vh; padding: 0; overflow-y: auto; border: 1px solid #41414b; border-radius: 15px; color: #e6e8ef; background: #222329; box-shadow: 0 22px 70px #000a; }
+        .profile-dialog.editor-open { width: min(900px, calc(100% - 32px)); max-width: 900px; }
         .profile-dialog::backdrop { background: #09090dcc; backdrop-filter: blur(3px); }
         .profile-dialog[open] { animation: dialog-enter .2s ease both; }
-        .profile-card { overflow: hidden; border-radius: inherit; }
+        .profile-card { position: relative; overflow: hidden; border-radius: inherit; }
         .profile-card.profile-enter { animation: content-enter .38s cubic-bezier(.2,.8,.2,1) both; }
         .profile-card.effect-aurora { background: linear-gradient(135deg, #252a3b, #232b2a 52%, #30243b); }
         .profile-card.effect-starlight { background: radial-gradient(ellipse at 75% 0, #56477766, transparent 56%), #222329; }
@@ -372,14 +378,11 @@
         @keyframes profile-aurora { to { background-position: 100% 80%; } }
         @keyframes profile-stars { to { background-position: 40px 38px, -53px 47px, center; } }
         @keyframes profile-ember { to { background-position: 95% 70%, center; } }
-        .profile-card-body { padding: 0 22px 22px; }
+        .profile-card-body { position: relative; z-index: 2; padding: 0 22px 22px; }
+        .profile-effect-art { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; pointer-events: none; }
         .profile-card-head { display: flex; align-items: end; justify-content: space-between; margin-top: -34px; }
         .profile-avatar-wrap { position: relative; flex: 0 0 auto; }
         .profile-card-avatar { width: 72px; height: 72px; border: 5px solid #222329; font-size: 23px; }
-        .profile-avatar-wrap.decoration-orbit::after, .profile-avatar-wrap.decoration-halo::after, .profile-avatar-wrap.decoration-aurora::after { position: absolute; z-index: 1; pointer-events: none; }
-        .profile-avatar-wrap.decoration-orbit::after { inset: -5px; border: 2px solid #9a7aff; border-radius: 50%; content: ""; transform: rotate(-24deg) scaleX(1.13); }
-        .profile-avatar-wrap.decoration-halo::after { top: -10px; right: -9px; content: "✦"; color: #ffe398; font-size: 24px; text-shadow: 0 2px 9px #f2a94f; }
-        .profile-avatar-wrap.decoration-aurora::after { inset: -5px; border: 3px solid transparent; border-radius: 50%; background: linear-gradient(135deg, #78f0cb, #aa82ff, #f8a77a) border-box; -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask-composite: exclude; content: ""; }
         .rank-icon { display: block; flex: 0 0 auto; width: 14px; height: 14px; }
         .profile-rank { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; padding: 5px 10px; border: 1px solid currentColor; border-radius: 999px; font-size: 11px; font-weight: 750; }
         .profile-rank .rank-icon { width: 17px; height: 17px; }
@@ -390,6 +393,7 @@
         .profile-rank.rank-moderator { color: #cbe4ff; background: #304d6b; }
         .profile-rank.rank-member { color: #d3d5de; background: #3a3b43; }
         .profile-card-name { margin-top: 13px; font-size: 20px; font-weight: 750; }
+        .profile-name-effect { display: block; width: min(100%, 340px); max-height: 48px; margin-top: 3px; object-fit: contain; }
         .profile-card-status { display: flex; align-items: center; gap: 8px; margin-top: 7px; color: #c0c1ca; font-size: 12px; text-transform: capitalize; }
         .profile-card-bio { min-height: 50px; margin-top: 20px; color: #c6c6cf; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
         .profile-card-music { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding: 11px 12px; border: 1px solid #403853; border-radius: 9px; background: linear-gradient(110deg, #30283e, #25232d); }
@@ -404,6 +408,30 @@
         .profile-actions .primary, .profile-edit-form .primary { background: #7359c8; }
         .profile-edit-form { display: grid; gap: 13px; padding: 22px; }
         .profile-edit-form.editor-enter { animation: editor-enter .3s cubic-bezier(.2,.8,.2,1) both; }
+        .profile-editor-layout { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) minmax(260px, .9fr); gap: 22px; align-items: start; }
+        .profile-editor-fields { display: grid; min-width: 0; gap: 13px; }
+        .profile-editor-preview-panel { display: grid; min-width: 0; align-content: start; gap: 9px; }
+        .profile-editor-preview-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+        .profile-editor-preview-heading strong { font-size: 13px; }
+        .profile-editor-preview-heading span { color: #9294a1; font-size: 10px; }
+        .profile-editor-preview-card .profile-banner { height: 112px; }
+        .profile-editor-preview-card .profile-card-body { padding: 0 16px 16px; }
+        .profile-editor-preview-card .profile-card-avatar { width: 60px; height: 60px; }
+        .profile-effect-label { color: #c9c9d1; font-size: 11px; font-weight: 700; }
+        .profile-effect-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 7px; }
+        .profile-edit-form .profile-effect-option { min-width: 0; padding: 6px; overflow: hidden; border: 1px solid #3d3e47; border-radius: 8px; color: #c9c9d1; background: #191a1f; text-align: left; }
+        .profile-effect-option:hover { border-color: #7963b5; background: #24232b; }
+        .profile-effect-option[aria-pressed="true"] { border-color: #a38be8; box-shadow: 0 0 0 1px #a38be866; background: #302941; }
+        .profile-effect-option:focus-visible { outline: 2px solid #a38be8; outline-offset: 2px; }
+        .profile-effect-option-art { position: relative; display: block; height: 58px; overflow: hidden; border-radius: 5px; background: linear-gradient(130deg, #7359c8, #302443); }
+        .profile-effect-option-art.effect-aurora { background: linear-gradient(120deg, #6bd8b6, #8b73ee, #4a77b3); background-size: 220% 220%; animation: profile-aurora 9s ease-in-out infinite alternate; animation-play-state: paused; }
+        .profile-effect-option-art.effect-starlight { background: radial-gradient(circle at 22% 30%, #fff 0 1px, transparent 2px), radial-gradient(circle at 72% 58%, #d2c6ff 0 1px, transparent 2px), linear-gradient(130deg, #40305f, #181b32); background-size: 42px 38px, 53px 47px, cover; animation: profile-stars 14s linear infinite; animation-play-state: paused; }
+        .profile-effect-option-art.effect-ember { background: radial-gradient(ellipse at 25% 110%, #ffb05c, transparent 56%), linear-gradient(130deg, #753e3c, #302443); background-size: 140% 140%, cover; animation: profile-ember 7s ease-in-out infinite alternate; animation-play-state: paused; }
+        .profile-effect-option:hover .profile-effect-option-art.effect-aurora, .profile-effect-option:focus-visible .profile-effect-option-art.effect-aurora { animation-play-state: running; }
+        .profile-effect-option:hover .profile-effect-option-art.effect-starlight, .profile-effect-option:focus-visible .profile-effect-option-art.effect-starlight { animation-play-state: running; }
+        .profile-effect-option:hover .profile-effect-option-art.effect-ember, .profile-effect-option:focus-visible .profile-effect-option-art.effect-ember { animation-play-state: running; }
+        .profile-effect-option-art img { width: 100%; height: 100%; object-fit: cover; }
+        .profile-effect-option-name { display: block; margin-top: 6px; overflow: hidden; font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
         .profile-edit-title { font-size: 17px; font-weight: 750; }
         .profile-edit-form label { display: block; margin-bottom: 7px; color: #c9c9d1; font-size: 11px; font-weight: 700; }
         .profile-edit-form textarea { width: 100%; min-height: 92px; resize: vertical; padding: 10px; border: 1px solid #3d3e47; border-radius: 7px; outline: 0; color: #eeeaf7; background: #191a1f; font: inherit; font-size: 12px; }
@@ -421,6 +449,11 @@
         .avatar-upload input { max-width: 220px; color: #c9c9d1; font-size: 11px; }
         .profile-form-error { min-height: 16px; color: #ff9898; font-size: 11px; }
         .profile-edit-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+        @media (max-width: 720px) {
+            .profile-dialog.editor-open { width: min(560px, calc(100% - 24px)); max-height: 92vh; }
+            .profile-editor-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+            .profile-editor-preview-panel { position: static; grid-row: 1; }
+        }
         .admin-dialog { width: min(920px, calc(100% - 28px)); max-width: 920px; max-height: min(86vh, 800px); padding: 0; overflow: hidden; border: 1px solid #41414b; border-radius: 14px; color: #e6e8ef; background: #202127; box-shadow: 0 22px 70px #000a; }
         .admin-dialog::backdrop { background: #09090dcc; backdrop-filter: blur(3px); }
         .admin-dialog[open] { animation: tool-panel-enter .28s cubic-bezier(.2,.8,.2,1) both; }
@@ -436,6 +469,12 @@
         .announcement-form input, .announcement-form textarea { width: 100%; padding: 10px; border: 1px solid #3d3e47; border-radius: 7px; outline: 0; color: #eeeaf7; background: #191a1f; font: inherit; font-size: 12px; }
         .announcement-form textarea { min-height: 110px; resize: vertical; }
         .announcement-form input:focus, .announcement-form textarea:focus { border-color: #8f75d4; }
+        .announcement-image-picker { display: grid; gap: 7px; color: #d7d5df; font-size: 11px; font-weight: 700; }
+        .announcement-image-picker input { font-weight: 400; }
+        .announcement-image-note { color: #9294a1; font-size: 10px; font-weight: 400; }
+        .announcement-image-preview { max-width: 100%; max-height: 220px; border: 1px solid #3d3e47; border-radius: 8px; object-fit: contain; }
+        .announcement-image-preview[hidden] { display: none; }
+        .announcement-image-remove { justify-self: start; padding: 6px 9px; border: 1px solid #443d5b; border-radius: 7px; color: #efe6ff; background: #2b2736; font-size: 10px; }
         .announcement-error { min-height: 15px; color: #ff9898; font-size: 11px; }
         .announcement-buttons { display: flex; justify-content: flex-end; gap: 8px; }
         .announcement-buttons button { padding: 8px 11px; border: 0; border-radius: 7px; color: #eeeaf7; background: #393a43; font-size: 11px; font-weight: 650; }
@@ -448,6 +487,9 @@
         .announcement-alert-kicker { color: #bda8ef; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
         .announcement-alert h2 { margin: 10px 0; font-size: 22px; }
         .announcement-alert-body { color: #d1d0da; font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .notification-item-image { display: block; max-width: 100%; max-height: 120px; margin-top: 8px; border-radius: 6px; object-fit: contain; }
+        .announcement-alert-image { display: block; max-width: 100%; max-height: min(45vh, 360px); margin-top: 16px; border-radius: 9px; object-fit: contain; }
+        .announcement-alert-image[hidden] { display: none; }
         .announcement-alert-meta { margin-top: 17px; color: #9293a0; font-size: 10px; }
         .announcement-alert button { display: block; margin: 22px 0 0 auto; padding: 9px 14px; border: 0; border-radius: 7px; color: white; background: #7359c8; font-size: 11px; font-weight: 700; }
         .admin-shell { display: flex; max-height: min(86vh, 800px); flex-direction: column; }
@@ -925,6 +967,13 @@
                     <option value="urgent">Urgent</option>
                 </select>
             </label>
+            <div class="announcement-image-picker">
+                <span>Image (optional)</span>
+                <input id="announcement-image" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose an announcement image">
+                <span class="announcement-image-note">PNG, JPEG, or WebP; compressed to fit 512 KB.</span>
+                <img class="announcement-image-preview" id="announcement-image-preview" alt="Announcement image preview" hidden>
+                <button class="announcement-image-remove" id="announcement-image-remove" type="button" hidden>Remove image</button>
+            </div>
             <div class="announcement-error" id="announcement-error" role="alert"></div>
             <div class="announcement-buttons">
                 <button id="announcement-cancel" type="button">Cancel</button>
@@ -937,6 +986,7 @@
             <div class="announcement-alert-kicker" id="announcement-alert-kicker">Community announcement</div>
             <h2 id="announcement-alert-title"></h2>
             <div class="announcement-alert-body" id="announcement-alert-body"></div>
+            <img class="announcement-alert-image" id="announcement-alert-image" alt="" hidden>
             <div class="announcement-alert-meta" id="announcement-alert-meta"></div>
             <button id="announcement-alert-close" type="button">Got it</button>
         </div>
@@ -999,6 +1049,27 @@
     <script>
         const themeSelect = document.getElementById('theme-select');
         const availableThemes = new Set(['violet', 'ocean', 'rose', 'orange']);
+        const profileDecorationOptions = [
+            ['none', 'None'],
+            ['orbit', 'Orbit ring'],
+            ['halo', 'Star halo'],
+            ['aurora', 'Aurora ring'],
+            ...Array.from({ length: 10 }, (_, index) => [
+                `discord-decoration-${index + 1}`,
+                `Animated ring ${index + 1}`
+            ])
+        ];
+        const profileEffectOptions = [
+            ['none', 'None'],
+            ['aurora', 'Aurora'],
+            ['starlight', 'Starlight'],
+            ['ember', 'Ember'],
+            ...Array.from({ length: 9 }, (_, index) => [
+                `discord-effect-${index + 1}`,
+                `Animated profile effect ${index + 1}`
+            ]),
+            ['discord-effect-nameplate', 'Animated nameplate effect']
+        ];
         let savedTheme = 'violet';
         try {
             const storedTheme = localStorage.getItem('orbit-theme');
@@ -1161,6 +1232,31 @@
             }
         }
 
+        function setAvatarDecoration(element, decoration) {
+            element.querySelector('.avatar-decoration-art')?.remove();
+            element.classList.remove('decoration-orbit', 'decoration-halo', 'decoration-aurora');
+            const customDecoration = /^discord-decoration-(\d+)$/.exec(decoration || '');
+            if (['orbit', 'halo', 'aurora'].includes(decoration)) {
+                element.classList.add(`decoration-${decoration}`);
+            } else if (customDecoration && Number(customDecoration[1]) <= 10) {
+                const art = document.createElement('img');
+                art.className = 'avatar-decoration-art';
+                art.src = `/profile-assets/decoration-${customDecoration[1]}.png`;
+                art.alt = '';
+                art.setAttribute('aria-hidden', 'true');
+                element.append(art);
+            }
+            element.dataset.decoration = decoration || 'none';
+        }
+
+        function refreshMessageAvatars() {
+            for (const avatar of document.querySelectorAll('.message .avatar')) {
+                const author = avatar.closest('.message')?.querySelector('.message-author')?.dataset.username;
+                const profile = author ? appState.memberProfiles.get(author.toLowerCase()) : null;
+                if (author && profile) setAvatarDecoration(avatar, profile.decoration);
+            }
+        }
+
         function updateActivityControls(channel) {
             const canStart = Boolean(appState.profile && !appState.activeDm
                 && (['developer', 'owner', 'admin', 'moderator'].includes(appState.profile.role)
@@ -1173,6 +1269,7 @@
             appState.profile = profile;
             const avatar = document.getElementById('profile-avatar');
             setAvatar(avatar, profile.username, profile.avatar);
+            setAvatarDecoration(avatar, profile.decoration);
             document.getElementById('profile-name').textContent = profile.username;
             document.getElementById('profile-status').textContent = profile.status;
             document.getElementById('current-status-dot').dataset.status = profile.status;
@@ -1180,6 +1277,8 @@
                 item.setAttribute('aria-checked', String(item.dataset.status === profile.status));
             });
             appState.memberProfiles.set(profile.username.toLowerCase(), profile);
+            renderMemberLists();
+            refreshMessageAvatars();
             refreshMessageRoles();
             const staffButton = document.getElementById('staff-actions-open');
             staffButton.hidden = profile.role === 'developer'
@@ -1514,6 +1613,7 @@
             avatar.className = 'avatar';
             const authorProfile = appState.memberProfiles.get(message.author.toLowerCase());
             setAvatar(avatar, message.author, authorProfile?.avatar || null);
+            setAvatarDecoration(avatar, authorProfile?.decoration);
             const content = document.createElement('div');
             content.className = 'message-content';
             const tools = document.createElement('div');
@@ -2363,10 +2463,20 @@
                 const body = document.createElement('div');
                 body.className = 'notification-item-body';
                 body.textContent = announcement.body;
+                if (announcement.image) {
+                    const image = document.createElement('img');
+                    image.className = 'notification-item-image';
+                    image.src = announcement.image;
+                    image.alt = '';
+                    image.loading = 'lazy';
+                    item.append(title, body, image);
+                } else {
+                    item.append(title, body);
+                }
                 const meta = document.createElement('div');
                 meta.className = 'notification-item-meta';
                 meta.textContent = `From ${announcement.author} · ${formatTime(announcement.createdAt)}`;
-                item.append(title, body, meta);
+                item.append(meta);
                 item.addEventListener('click', () => showAnnouncement(announcement));
                 list.append(item);
             }
@@ -2383,6 +2493,10 @@
             appState.announcementAlertId = announcement.id;
             document.getElementById('announcement-alert-title').textContent = announcement.title;
             document.getElementById('announcement-alert-body').textContent = announcement.body;
+            const image = document.getElementById('announcement-alert-image');
+            image.hidden = !announcement.image;
+            if (announcement.image) image.src = announcement.image;
+            else image.removeAttribute('src');
             const category = ['update', 'event', 'urgent'].includes(announcement.category)
                 ? announcement.category : 'update';
             document.getElementById('announcement-alert-kicker').textContent =
@@ -2549,6 +2663,7 @@
                 const avatar = document.createElement('span');
                 avatar.className = 'avatar small';
                 setAvatar(avatar, username, user.avatar);
+                setAvatarDecoration(avatar, user.decoration);
                 avatar.dataset.name = username;
                 avatar.dataset.picture = user.avatar || '';
                 const name = document.createElement('span');
@@ -2573,8 +2688,12 @@
                 const picture = user.avatar || '';
                 if (avatar.dataset.name !== username || avatar.dataset.picture !== picture) {
                     setAvatar(avatar, username, picture || null);
+                    setAvatarDecoration(avatar, user.decoration);
                     avatar.dataset.name = username;
                     avatar.dataset.picture = picture;
+                }
+                if (avatar.dataset.decoration !== (user.decoration || 'none')) {
+                    setAvatarDecoration(avatar, user.decoration);
                 }
                 row.querySelector('.member-name').textContent = username;
                 const rank = row.querySelector('.member-role');
@@ -2641,6 +2760,7 @@
                 appState.memberProfiles = new Map([...users, ...offlineUsers]
                     .map(user => [String(user.username || user.name).toLowerCase(), user]));
                 renderMemberLists();
+                refreshMessageAvatars();
                 refreshMessageRoles();
             } catch (error) {
                 showToast(error.message);
@@ -2914,13 +3034,17 @@
 
         function renderProfile(profile, requestedUsername) {
             stopProfileMusic();
+            document.getElementById('profile-dialog').classList.remove('editor-open');
             const content = document.getElementById('profile-dialog-content');
             const ownProfile = profile.username.toLowerCase() === appState.user.name.toLowerCase();
             const owner = ['owner', 'developer'].includes(appState.profile?.role);
             content.replaceChildren();
             const card = document.createElement('section');
-            const effect = ['aurora', 'starlight', 'ember'].includes(profile.profileEffect) ? profile.profileEffect : 'none';
-            card.className = `profile-card profile-enter${effect === 'none' ? '' : ` effect-${effect}`}`;
+            const effect = profile.profileEffect || 'none';
+            const customEffect = /^discord-effect-(\d+)$/.exec(effect);
+            const nameplateEffect = effect === 'discord-effect-nameplate';
+            const builtInEffect = ['aurora', 'starlight', 'ember'].includes(effect) ? effect : 'none';
+            card.className = `profile-card profile-enter${builtInEffect === 'none' ? '' : ` effect-${builtInEffect}`}`;
             const banner = document.createElement('div');
             banner.className = 'profile-banner';
             if (profile.banner) banner.style.backgroundImage = `url("${profile.banner}")`;
@@ -2929,10 +3053,11 @@
             const head = document.createElement('div');
             head.className = 'profile-card-head';
             const avatarWrap = document.createElement('div');
-            avatarWrap.className = `profile-avatar-wrap decoration-${profile.decoration || 'none'}`;
+            avatarWrap.className = 'profile-avatar-wrap';
             const avatar = document.createElement('div');
             avatar.className = 'avatar profile-card-avatar';
             setAvatar(avatar, profile.username, profile.avatar);
+            setAvatarDecoration(avatar, profile.decoration);
             avatarWrap.append(avatar);
             head.append(avatarWrap);
             if (ownProfile || owner) {
@@ -2946,6 +3071,14 @@
             const name = document.createElement('div');
             name.className = 'profile-card-name';
             name.textContent = profile.username || requestedUsername;
+            if (nameplateEffect) {
+                const nameplateArt = document.createElement('img');
+                nameplateArt.className = 'profile-name-effect';
+                nameplateArt.src = '/profile-assets/effect-nameplate.png?v=2';
+                nameplateArt.alt = '';
+                nameplateArt.setAttribute('aria-hidden', 'true');
+                name.append(nameplateArt);
+            }
             const rank = document.createElement('span');
             setRankIcon(rank, normalizedMemberRole(profile), 'profile-rank', true);
             const status = document.createElement('div');
@@ -3084,6 +3217,14 @@
             actions.append(close);
             body.append(actions);
             card.append(banner, body);
+            if (customEffect) {
+                const effectArt = document.createElement('img');
+                effectArt.className = 'profile-effect-art';
+                effectArt.src = `/profile-assets/effect-${customEffect[1]}.png?v=2`;
+                effectArt.alt = '';
+                effectArt.setAttribute('aria-hidden', 'true');
+                card.append(effectArt);
+            }
             content.append(card);
         }
 
@@ -3123,8 +3264,33 @@
             }
         }
 
+        async function prepareAnnouncementImage(file) {
+            if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+                throw new Error('Choose a PNG, JPEG, or WebP image.');
+            }
+            if (file.size > 12 * 1024 * 1024) throw new Error('Choose an image smaller than 12 MB.');
+            const bitmap = await createImageBitmap(file);
+            try {
+                const scale = Math.min(1, 1200 / bitmap.width, 900 / bitmap.height);
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+                canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+                const context = canvas.getContext('2d');
+                if (!context) throw new Error('Your browser could not prepare that image.');
+                context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                for (const quality of [0.86, 0.72, 0.58, 0.44]) {
+                    const image = canvas.toDataURL('image/webp', quality);
+                    if (image.length <= 512 * 1024 * 1.4) return image;
+                }
+                throw new Error('That image is too large after compression. Choose a smaller image.');
+            } finally {
+                bitmap.close();
+            }
+        }
+
         function renderProfileEditor(profile, adminEditing = false) {
             stopProfileMusic();
+            document.getElementById('profile-dialog').classList.add('editor-open');
             const content = document.getElementById('profile-dialog-content');
             content.replaceChildren();
             const form = document.createElement('form');
@@ -3132,6 +3298,11 @@
             const title = document.createElement('div');
             title.className = 'profile-edit-title';
             title.textContent = adminEditing ? `Edit ${profile.username}'s profile` : 'Edit your profile';
+            const editorLayout = document.createElement('div');
+            editorLayout.className = 'profile-editor-layout';
+            const editorFields = document.createElement('div');
+            editorFields.className = 'profile-editor-fields';
+            let refreshPreview = () => {};
             const avatarLabel = document.createElement('label');
             avatarLabel.textContent = 'Profile picture';
             const avatarRow = document.createElement('div');
@@ -3150,6 +3321,7 @@
                 try {
                     selectedAvatar = await prepareProfileImage(picked, 256, 256, 256 * 1024);
                     setAvatar(preview, profile.username, selectedAvatar);
+                    refreshPreview();
                     error.textContent = '';
                 } catch (failure) {
                     error.textContent = failure.message || 'Could not read that image.';
@@ -3171,6 +3343,7 @@
                     selectedBanner = await prepareProfileImage(picked, 1200, 360, 512 * 1024);
                     removeBanner.disabled = false;
                     bannerNote.textContent = 'New banner ready to save.';
+                    refreshPreview();
                     error.textContent = '';
                 } catch (failure) {
                     error.textContent = failure.message || 'Could not read that banner.';
@@ -3189,33 +3362,95 @@
                 bannerFile.value = '';
                 bannerNote.textContent = 'No banner selected.';
                 removeBanner.disabled = true;
+                refreshPreview();
             });
             bannerLabel.append(bannerFile, bannerNote, removeBanner);
             const decorationLabel = document.createElement('label');
             decorationLabel.textContent = 'Avatar decoration';
             const decorationSelect = document.createElement('select');
             decorationSelect.setAttribute('aria-label', 'Choose an avatar decoration');
-            for (const [value, label] of [['none', 'None'], ['orbit', 'Orbit ring'], ['halo', 'Star halo'], ['aurora', 'Aurora ring']]) {
+            for (const [value, label] of profileDecorationOptions) {
                 const option = document.createElement('option');
                 option.value = value;
                 option.textContent = label;
                 decorationSelect.append(option);
             }
-            decorationSelect.value = ['none', 'orbit', 'halo', 'aurora'].includes(profile.decoration)
+            decorationSelect.value = profileDecorationOptions.some(([value]) => value === profile.decoration)
                 ? profile.decoration : 'none';
+            decorationSelect.addEventListener('change', () => refreshPreview());
             decorationLabel.append(decorationSelect);
-            const effectLabel = document.createElement('label');
-            effectLabel.textContent = 'Profile effect';
-            const effectSelect = document.createElement('select');
-            effectSelect.setAttribute('aria-label', 'Choose a profile effect');
-            for (const [value, label] of [['none', 'None'], ['aurora', 'Aurora'], ['starlight', 'Starlight'], ['ember', 'Ember']]) {
-                const option = document.createElement('option');
-                option.value = value;
-                option.textContent = label;
-                effectSelect.append(option);
-            }
-            effectSelect.value = ['none', 'aurora', 'starlight', 'ember'].includes(profile.profileEffect)
+            let selectedProfileEffect = profileEffectOptions.some(([value]) => value === profile.profileEffect)
                 ? profile.profileEffect : 'none';
+            const effectLabel = document.createElement('div');
+            effectLabel.className = 'profile-effect-label';
+            effectLabel.textContent = 'Profile effect';
+            const effectOptions = document.createElement('div');
+            effectOptions.className = 'profile-effect-options';
+            effectOptions.setAttribute('role', 'group');
+            effectOptions.setAttribute('aria-label', 'Choose a profile effect');
+            const effectButtons = [];
+            for (const [value, label] of profileEffectOptions) {
+                const optionButton = document.createElement('button');
+                optionButton.type = 'button';
+                optionButton.className = 'profile-effect-option';
+                optionButton.setAttribute('aria-label', label);
+                optionButton.setAttribute('aria-pressed', String(value === selectedProfileEffect));
+                const artwork = document.createElement('span');
+                artwork.className = 'profile-effect-option-art';
+                const customEffect = /^discord-effect-(\d+)$/.exec(value);
+                let thumbnailPath = null;
+                if (customEffect || value === 'discord-effect-nameplate') {
+                    thumbnailPath = customEffect
+                        ? `/profile-assets/effect-${customEffect[1]}.png?v=2`
+                        : '/profile-assets/effect-nameplate.png?v=2';
+                } else if (['aurora', 'starlight', 'ember'].includes(value)) {
+                    artwork.classList.add(`effect-${value}`);
+                }
+                let pointerInside = false;
+                let focusInside = false;
+                const updateThumbnail = () => {
+                    if (!thumbnailPath) return;
+                    let image = artwork.querySelector('img');
+                    if (pointerInside || focusInside) {
+                        if (!image) {
+                            image = document.createElement('img');
+                            image.src = thumbnailPath;
+                            image.alt = '';
+                            image.setAttribute('aria-hidden', 'true');
+                            artwork.append(image);
+                        }
+                    } else {
+                        image?.remove();
+                    }
+                };
+                optionButton.addEventListener('pointerenter', () => {
+                    pointerInside = true;
+                    updateThumbnail();
+                });
+                optionButton.addEventListener('pointerleave', () => {
+                    pointerInside = false;
+                    updateThumbnail();
+                });
+                optionButton.addEventListener('focus', () => {
+                    focusInside = true;
+                    updateThumbnail();
+                });
+                optionButton.addEventListener('blur', () => {
+                    focusInside = false;
+                    updateThumbnail();
+                });
+                const optionName = document.createElement('span');
+                optionName.className = 'profile-effect-option-name';
+                optionName.textContent = label;
+                optionButton.append(artwork, optionName);
+                optionButton.addEventListener('click', () => {
+                    selectedProfileEffect = value;
+                    refreshPreview();
+                });
+                effectButtons.push(optionButton);
+                effectOptions.append(optionButton);
+            }
+            effectLabel.append(effectOptions);
             const musicLabel = document.createElement('label');
             musicLabel.textContent = 'Profile music';
             const musicBlock = document.createElement('div');
@@ -3271,6 +3506,80 @@
             bio.placeholder = 'Tell the community a little about yourself';
             bio.value = profile.bio || '';
             bioLabel.append(bio);
+            const previewPanel = document.createElement('aside');
+            previewPanel.className = 'profile-editor-preview-panel';
+            const previewHeading = document.createElement('div');
+            previewHeading.className = 'profile-editor-preview-heading';
+            const previewTitle = document.createElement('strong');
+            previewTitle.textContent = 'Profile preview';
+            const previewHint = document.createElement('span');
+            previewHint.textContent = 'Updates as you edit';
+            previewHeading.append(previewTitle, previewHint);
+            const previewCard = document.createElement('section');
+            previewCard.className = 'profile-card profile-editor-preview-card';
+            const previewBanner = document.createElement('div');
+            previewBanner.className = 'profile-banner';
+            const previewBody = document.createElement('div');
+            previewBody.className = 'profile-card-body';
+            const previewHead = document.createElement('div');
+            previewHead.className = 'profile-card-head';
+            const previewAvatarWrap = document.createElement('div');
+            previewAvatarWrap.className = 'profile-avatar-wrap';
+            const previewAvatar = document.createElement('div');
+            previewAvatar.className = 'avatar profile-card-avatar';
+            previewAvatarWrap.append(previewAvatar);
+            previewHead.append(previewAvatarWrap);
+            const previewName = document.createElement('div');
+            previewName.className = 'profile-card-name';
+            previewName.textContent = profile.username;
+            const previewRank = document.createElement('span');
+            setRankIcon(previewRank, normalizedMemberRole(profile), 'profile-rank', true);
+            const previewStatus = document.createElement('div');
+            previewStatus.className = 'profile-card-status';
+            const previewStatusDot = document.createElement('span');
+            previewStatusDot.className = `online-dot${profile.status === 'online' ? '' : ` ${profile.status}`}`;
+            const previewStatusText = document.createElement('span');
+            previewStatusText.textContent = profile.status;
+            previewStatus.append(previewStatusDot, previewStatusText);
+            const previewBio = document.createElement('div');
+            previewBio.className = 'profile-card-bio';
+            previewBody.append(previewHead, previewName, previewRank, previewStatus, previewBio);
+            previewCard.append(previewBanner, previewBody);
+            previewPanel.append(previewHeading, previewCard, effectLabel);
+            refreshPreview = () => {
+                const customEffect = /^discord-effect-(\d+)$/.exec(selectedProfileEffect);
+                const builtInEffect = ['aurora', 'starlight', 'ember'].includes(selectedProfileEffect)
+                    ? selectedProfileEffect : 'none';
+                previewCard.className = `profile-card profile-editor-preview-card${builtInEffect === 'none' ? '' : ` effect-${builtInEffect}`}`;
+                previewBanner.style.backgroundImage = selectedBanner ? `url("${selectedBanner}")` : '';
+                setAvatar(previewAvatar, profile.username, selectedAvatar);
+                setAvatarDecoration(previewAvatar, decorationSelect.value);
+                previewName.replaceChildren();
+                previewName.append(document.createTextNode(profile.username));
+                if (selectedProfileEffect === 'discord-effect-nameplate') {
+                    const nameplate = document.createElement('img');
+                    nameplate.className = 'profile-name-effect';
+                    nameplate.src = '/profile-assets/effect-nameplate.png?v=2';
+                    nameplate.alt = '';
+                    nameplate.setAttribute('aria-hidden', 'true');
+                    previewName.append(nameplate);
+                }
+                previewBio.textContent = bio.value || 'No bio yet.';
+                previewCard.querySelector('.profile-effect-art')?.remove();
+                if (customEffect) {
+                    const effectArt = document.createElement('img');
+                    effectArt.className = 'profile-effect-art';
+                    effectArt.src = `/profile-assets/effect-${customEffect[1]}.png?v=2`;
+                    effectArt.alt = '';
+                    effectArt.setAttribute('aria-hidden', 'true');
+                    previewCard.append(effectArt);
+                }
+                for (const [index, [value]] of profileEffectOptions.entries()) {
+                    effectButtons[index].setAttribute('aria-pressed', String(value === selectedProfileEffect));
+                }
+            };
+            bio.addEventListener('input', () => refreshPreview());
+            refreshPreview();
             const error = document.createElement('div');
             error.className = 'profile-form-error';
             const buttons = document.createElement('div');
@@ -3291,7 +3600,9 @@
             save.type = 'submit';
             save.textContent = 'Save changes';
             buttons.append(cancel, save);
-            form.append(title, avatarLabel, bannerLabel, decorationLabel, effectLabel, musicLabel, bioLabel, error, buttons);
+            editorFields.append(avatarLabel, bannerLabel, decorationLabel, musicLabel, bioLabel);
+            editorLayout.append(editorFields, previewPanel);
+            form.append(title, editorLayout, error, buttons);
             form.addEventListener('submit', async event => {
                 event.preventDefault();
                 save.disabled = true;
@@ -3304,7 +3615,7 @@
                             status: profile.status,
                             banner: selectedBanner,
                             decoration: decorationSelect.value,
-                            profileEffect: effectSelect.value
+                            profileEffect: selectedProfileEffect
                         }, false);
                         document.getElementById('profile-dialog').close();
                         openAdminPanel();
@@ -3318,7 +3629,7 @@
                                 status: appState.profile.status,
                                 banner: selectedBanner,
                                 decoration: decorationSelect.value,
-                                profileEffect: effectSelect.value
+                                profileEffect: selectedProfileEffect
                             })
                         });
                         updateOwnProfile(result.profile);
@@ -3748,6 +4059,42 @@
                 document.getElementById('notification-toggle').setAttribute('aria-expanded', 'false');
             }
         });
+        let selectedAnnouncementImage = null;
+        const announcementImage = document.getElementById('announcement-image');
+        const announcementImagePreview = document.getElementById('announcement-image-preview');
+        const announcementImageRemove = document.getElementById('announcement-image-remove');
+        document.getElementById('announcement-form').addEventListener('reset', () => {
+            selectedAnnouncementImage = null;
+            announcementImagePreview.removeAttribute('src');
+            announcementImagePreview.hidden = true;
+            announcementImageRemove.hidden = true;
+        });
+        announcementImage.addEventListener('change', async () => {
+            const file = announcementImage.files[0];
+            if (!file) return;
+            const errorElement = document.getElementById('announcement-error');
+            try {
+                selectedAnnouncementImage = await prepareAnnouncementImage(file);
+                announcementImagePreview.src = selectedAnnouncementImage;
+                announcementImagePreview.hidden = false;
+                announcementImageRemove.hidden = false;
+                errorElement.textContent = '';
+            } catch (error) {
+                selectedAnnouncementImage = null;
+                announcementImage.value = '';
+                announcementImagePreview.removeAttribute('src');
+                announcementImagePreview.hidden = true;
+                announcementImageRemove.hidden = true;
+                errorElement.textContent = error.message || 'Could not prepare that image.';
+            }
+        });
+        announcementImageRemove.addEventListener('click', () => {
+            selectedAnnouncementImage = null;
+            announcementImage.value = '';
+            announcementImagePreview.removeAttribute('src');
+            announcementImagePreview.hidden = true;
+            announcementImageRemove.hidden = true;
+        });
         document.getElementById('announcement-compose').addEventListener('click', () => {
             document.getElementById('notification-panel').hidden = true;
             document.getElementById('notification-toggle').setAttribute('aria-expanded', 'false');
@@ -3770,8 +4117,9 @@
                     method: 'POST',
                     body: JSON.stringify({
                         title: document.getElementById('announcement-title').value,
-                            body: document.getElementById('announcement-body').value,
-                            category: document.getElementById('announcement-category').value
+                        body: document.getElementById('announcement-body').value,
+                        category: document.getElementById('announcement-category').value,
+                        image: selectedAnnouncementImage
                     })
                 });
                 document.getElementById('announcement-dialog').close();
