@@ -212,6 +212,8 @@ test('serves the chat app with security headers and no external chat integration
     assert.match(page, /function refreshReports/);
     assert.match(page, /id="member-rank-filter"/);
     assert.match(page, /row\.dataset\.memberKey = username\.toLowerCase\(\)/);
+    assert.match(page, /row\.append\(avatar, name, rank, dot\)/);
+    assert.doesNotMatch(page, /nameplate/);
     assert.match(page, /const existingRows = new Map/);
     assert.match(page, /element\.insertBefore\(row, element\.children\[index\] \|\| null\)/);
     assert.match(page, /id="theme-select"/);
@@ -984,9 +986,9 @@ test('saves profile pictures, bios, and status and returns public profiles', asy
 test('serves animated profile assets and accepts them in profile settings', async t => {
     const baseUrl = await startServer(t);
     const assetPaths = [
-        ...Array.from({ length: 10 }, (_, index) => `/profile-assets/decoration-${index + 1}.png`),
+        ...Array.from({ length: 41 }, (_, index) => `/profile-assets/decoration-${index + 1}.png`),
         ...Array.from({ length: 9 }, (_, index) => `/profile-assets/effect-${index + 1}.png`),
-        '/profile-assets/effect-nameplate.png'
+        '/profile-assets/effect-10.png'
     ];
     for (const assetPath of assetPaths) {
         const response = await fetch(`${baseUrl}${assetPath}`);
@@ -996,8 +998,10 @@ test('serves animated profile assets and accepts them in profile settings', asyn
         assert.equal(response.headers.get('content-type'), 'image/png');
         assert.match(response.headers.get('cache-control'), /immutable/);
         assert.deepEqual(bytes.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-        assert.ok(bytes.includes(Buffer.from('acTL')), `${assetPath} is an animated PNG`);
-        if (assetPath.includes('/effect-')) {
+        if (assetPath !== '/profile-assets/effect-10.png') {
+            assert.ok(bytes.includes(Buffer.from('acTL')), `${assetPath} is an animated PNG`);
+        }
+        if (assetPath.includes('/effect-') && assetPath !== '/profile-assets/effect-10.png') {
             let offset = 8;
             let playCount;
             let frameCount = 0;
@@ -1020,23 +1024,32 @@ test('serves animated profile assets and accepts them in profile settings', asyn
         }
     }
     assert.equal((await fetch(`${baseUrl}/profile-assets/effect-1.png?v=2`)).status, 200);
+    const staticEffect = await fetch(`${baseUrl}/profile-assets/effect-10.png?v=1`);
+    const videoEffect = await fetch(`${baseUrl}/profile-assets/effect-video.webm?v=1`);
+    assert.equal(staticEffect.status, 200);
+    assert.equal(videoEffect.status, 200);
+    assert.equal(videoEffect.headers.get('content-type'), 'video/webm');
+    assert.deepEqual(Buffer.from(await videoEffect.arrayBuffer()).subarray(0, 4), Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
 
     const { cookie } = await join(baseUrl, 'AnimatedProfile');
+    assert.equal((await fetch(`${baseUrl}/profile-assets/nameplate-beta.png`, { headers: { Cookie: cookie } })).status, 404);
+    assert.equal((await fetch(`${baseUrl}/profile-assets/effect-nameplate.png`, { headers: { Cookie: cookie } })).status, 404);
     const update = await fetch(`${baseUrl}/api/profile/me`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
         body: JSON.stringify({
             bio: '',
-            decoration: 'discord-decoration-10',
-            profileEffect: 'discord-effect-nameplate'
+            decoration: 'discord-decoration-41',
+            profileEffect: 'discord-effect-video'
         })
     });
     const saved = await update.json();
     const ownProfile = await fetch(`${baseUrl}/api/profile/me`, { headers: { Cookie: cookie } });
 
     assert.equal(update.status, 200);
-    assert.equal(saved.profile.decoration, 'discord-decoration-10');
-    assert.equal(saved.profile.profileEffect, 'discord-effect-nameplate');
+    assert.equal(saved.profile.decoration, 'discord-decoration-41');
+    assert.equal(saved.profile.profileEffect, 'discord-effect-video');
+    assert.equal(Object.hasOwn(saved.profile, 'nameplate'), false);
     assert.deepEqual((await ownProfile.json()).profile, saved.profile);
 });
 
@@ -1145,6 +1158,27 @@ test('removes legacy custom avatar overlays from saved profiles', async t => {
     assert.equal(login.status, 200);
     assert.equal(Object.hasOwn((await profile.json()).profile, 'decorationImage'), false);
     assert.equal(Object.hasOwn(migratedStore[0], 'decorationImage'), false);
+});
+
+test('removes retired profile nameplates from saved profiles', async t => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'orbit-nameplate-migration-'));
+    const userStorePath = path.join(directory, 'users.json');
+    t.after(() => fs.rm(directory, { recursive: true, force: true }));
+    const first = await createChatServer({ host: '127.0.0.1', port: 0, userStorePath });
+    const firstBase = `http://127.0.0.1:${first.address().port}`;
+    await join(firstBase, 'NameplateLegacy');
+    await new Promise((resolve, reject) => first.close(error => error ? reject(error) : resolve()));
+
+    const accounts = JSON.parse(await fs.readFile(userStorePath, 'utf8'));
+    accounts[0].profileEffect = 'discord-effect-nameplate';
+    accounts[0].nameplate = 'discord-nameplate-beta';
+    await fs.writeFile(userStorePath, JSON.stringify(accounts));
+    const server = await createChatServer({ host: '127.0.0.1', port: 0, userStorePath });
+    t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
+
+    const migrated = JSON.parse(await fs.readFile(userStorePath, 'utf8'))[0];
+    assert.equal(migrated.profileEffect, 'none');
+    assert.equal(Object.hasOwn(migrated, 'nameplate'), false);
 });
 
 test('enforces the profile banner size limit', async t => {

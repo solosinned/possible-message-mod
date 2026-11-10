@@ -49,6 +49,10 @@ const PROFILE_DECORATION_FILES = [
     'animated (9)',
     'animated (10)'
 ];
+const PROFILE_EXTRA_DECORATION_FILES = Array.from(
+    { length: 31 },
+    (_, index) => index === 0 ? 'animated' : `animated (${index})`
+);
 const PROFILE_EFFECT_FILES = [
     '3b74ba84c8941ad0d91afafd00d169b8124cd2956fcaa7fda3b784a6edafcba6',
     '4049f02d5fe6eda17cf66dc047480e02c669b7022255203a996557086da2c44f.png',
@@ -60,12 +64,17 @@ const PROFILE_EFFECT_FILES = [
     'be67d92063f863236b59b19e84ab4a82c43d9cf99b1640636c69cfecad3dbcb2',
     'fa8b3fac80a88fcf24cfee30e5f0b814880bde1fb466d5835aa573aa718d2862'
 ];
+const PROFILE_EXTRA_EFFECT_FILES = [
+    ['/profile-assets/effect-10.png', 'b2e45ecdec429dc2cf69952dbb7e3894fffb179f6849a972b90d0061e6ba9a65'],
+    ['/profile-assets/effect-video.webm', 'video']
+];
 const PROFILE_DECORATIONS = new Set([
     'none',
     'orbit',
     'halo',
     'aurora',
-    ...PROFILE_DECORATION_FILES.map((_, index) => `discord-decoration-${index + 1}`)
+    ...PROFILE_DECORATION_FILES.map((_, index) => `discord-decoration-${index + 1}`),
+    ...PROFILE_EXTRA_DECORATION_FILES.map((_, index) => `discord-decoration-${index + 11}`)
 ]);
 const PROFILE_EFFECTS = new Set([
     'none',
@@ -73,7 +82,8 @@ const PROFILE_EFFECTS = new Set([
     'starlight',
     'ember',
     ...PROFILE_EFFECT_FILES.map((_, index) => `discord-effect-${index + 1}`),
-    'discord-effect-nameplate'
+    'discord-effect-10',
+    'discord-effect-video'
 ]);
 const PROFILE_ASSET_FILES = Object.fromEntries([
     ...PROFILE_DECORATION_FILES.map((file, index) => [
@@ -84,7 +94,14 @@ const PROFILE_ASSET_FILES = Object.fromEntries([
         `/profile-assets/effect-${index + 1}.png`,
         path.join(__dirname, 'assets', 'discord stuff', file)
     ]),
-    ['/profile-assets/effect-nameplate.png', path.join(__dirname, 'assets', 'discord stuff', 'animated (7)')]
+    ...PROFILE_EXTRA_DECORATION_FILES.map((file, index) => [
+        `/profile-assets/decoration-${index + 11}.png`,
+        path.join(__dirname, 'assets', 'discord stuff', 'animations and stuff#2', file)
+    ]),
+    ...PROFILE_EXTRA_EFFECT_FILES.map(([pathname, file]) => [
+        pathname,
+        path.join(__dirname, 'assets', 'discord stuff', 'animations and stuff#2', file)
+    ])
 ]);
 const ONBOARDING_STEPS = new Set(['channels', 'profile', 'message']);
 const ONBOARDING_INTERESTS = new Set(['conversation', 'ideas', 'games', 'music']);
@@ -304,6 +321,14 @@ async function loadAccounts(state, userStorePath, ownerBootstrapPassword) {
         account.banner ??= null;
         account.decoration ??= 'none';
         account.profileEffect ??= 'none';
+        if (account.profileEffect === 'discord-effect-nameplate') {
+            account.profileEffect = 'none';
+            migrated = true;
+        }
+        if (Object.hasOwn(account, 'nameplate')) {
+            delete account.nameplate;
+            migrated = true;
+        }
         account.onboarding ??= { completed: false, steps: [], interests: [], notifications: 'mentions' };
         if (account.onboarding && typeof account.onboarding === 'object'
             && !Array.isArray(account.onboarding)) {
