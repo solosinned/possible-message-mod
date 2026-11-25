@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vortex Chat Integration Demo</title>
+    <style>
+      :root {
+        --bg: #0f1117;
+        --panel: #171923;
+        --panel-2: #1d2130;
+        --border: #2a3042;
+        --text: #edf2ff;
+        --muted: #9aa4bf;
+        --accent: #7c5cff;
+        --accent-2: #9b84ff;
+        --danger: #ff6b6b;
+        --ok: #4ade80;
+        --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+        --radius: 14px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: radial-gradient(1200px 700px at top left, #1a1630 0%, var(--bg) 45%), var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      a { color: var(--accent-2); }
+      .app {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, var(--accent), #4cc9f0);
+        display: grid;
+        place-items: center;
+        font-weight: 800;
+        box-shadow: var(--shadow);
+      }
+      .brand h1 { font-size: 1.35rem; margin: 0; }
+      .brand p { margin: 2px 0 0; color: var(--muted); font-size: 0.95rem; }
+      .card {
+        background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 30%), var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+      }
+      .auth-card {
+        max-width: 560px;
+        margin: 64px auto;
+        padding: 32px;
+        text-align: center;
+      }
+      .auth-card p { color: var(--muted); line-height: 1.6; }
+      .btn {
+        appearance: none;
+        border: 0;
+        border-radius: 10px;
+        padding: 11px 16px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform .08s ease, opacity .15s ease, background .15s ease;
+      }
+      .btn:hover { transform: translateY(-1px); }
+      .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent), #6544e8);
+        color: white;
+      }
+      .btn-secondary {
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+      .user-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #2b334d;
+        object-fit: cover;
+        border: 1px solid var(--border);
+      }
+      .user-meta { line-height: 1.3; }
+      .user-meta .name { font-weight: 650; }
+      .user-meta .sub { color: var(--muted); font-size: 0.85rem; }
+      .layout {
+        display: grid;
+        grid-template-columns: 290px 1fr;
+        gap: 16px;
+        min-height: 70vh;
+      }
+      .sidebar { padding: 16px; overflow: auto; }
+      .main { padding: 16px; display: flex; flex-direction: column; min-height: 70vh; }
+      .section-title {
+        font-size: 0.78rem;
+        color: var(--muted);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        margin: 0 0 10px;
+      }
+      .guild {
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255,255,255,0.02);
+        margin-bottom: 14px;
+      }
+      .guild .name { font-weight: 650; }
+      .guild .desc { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+      .channel-list { display: flex; flex-direction: column; gap: 6px; }
+      .channel-btn {
+        width: 100%;
+        text-align: left;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text);
+        cursor: pointer;
+        font: inherit;
+      }
+      .channel-btn:hover { background: rgba(255,255,255,0.04); }
+      .channel-btn.active {
+        background: rgba(124, 92, 255, 0.16);
+        border-color: rgba(124, 92, 255, 0.35);
+      }
+      .channel-btn .meta { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+      .messages {
+        flex: 1;
+        overflow: auto;
+        padding: 8px 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .message {
+        display: flex;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.02);
+      }
+      .message .avatar { width: 34px; height: 34px; flex: 0 0 auto; }
+      .message .body { min-width: 0; flex: 1; }
+      .message .head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 3px; }
+      .message .author { font-weight: 650; font-size: 0.95rem; }
+      .message .time { color: var(--muted); font-size: 0.78rem; }
+      .message .content { white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
+      .composer {
+        display: flex;
+        gap: 10px;
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border);
+      }
+      .composer input {
+        flex: 1;
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px 14px;
+        font: inherit;
+      }
+      .composer input:focus { outline: 2px solid rgba(124,92,255,0.4); border-color: var(--accent); }
+      .status { color: var(--muted); font-size: 0.9rem; padding: 12px 0; }
+      .status.error { color: var(--danger); }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 32px 12px;
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 0.72rem;
+        border-radius: 999px;
+        background: rgba(124,92,255,.18);
+        color: var(--accent-2);
+        margin-left: 6px;
+      }
+      @media (max-width: 900px) {
+        .layout { grid-template-columns: 1fr; }
+        .main { min-height: 55vh; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="brand">
+          <div class="logo">V</div>
+          <div>
+            <h1>Vortex Chat Demo</h1>
+            <p>Express + @vortex-chat/sdk integration</p>
+          </div>
+        </div>
+        <div id="user-bar" class="user-bar"></div>
+      </header>
+
+      <section id="signed-out" class="card auth-card" hidden>
+        <h2>Sign in with Vortex</h2>
+        <p>
+          Connect your Vortex account to view channels, read recent messages, and send messages
+          from this demo app. Your client secret stays on the server.
+        </p>
+        <a class="btn btn-primary" href="/auth/vortex">Login with Vortex</a>
+      </section>
+
+      <section id="signed-in" class="layout" hidden>
+        <aside class="card sidebar">
+          <div id="guild-info" class="guild">
+            <div class="name">Loading guild...</div>
+          </div>
+          <p class="section-title">Channels</p>
+          <div id="channels" class="channel-list"></div>
+        </aside>
+
+        <main class="card main">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px;">
+            <div>
+              <p class="section-title" style="margin-bottom:4px;">Messages</p>
+              <h2 id="channel-title" style="margin:0;font-size:1.2rem;">Select a channel</h2>
+            </div>
+            <span id="realtime-status" class="pill">offline</span>
+          </div>
+          <div id="status" class="status">Loading...</div>
+          <div id="messages" class="messages"></div>
+          <form id="composer" class="composer" hidden>
+            <input id="message-input" type="text" maxlength="2000" placeholder="Send a message..." autocomplete="off" />
+            <button id="send-btn" class="btn btn-primary" type="submit">Send</button>
+          </form>
+        </main>
+      </section>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const signedOut = document.getElementById("signed-out");
+      const signedIn = document.getElementById("signed-in");
+      const userBar = document.getElementById("user-bar");
+      const guildInfo = document.getElementById("guild-info");
+      const channelsEl = document.getElementById("channels");
+      const channelTitle = document.getElementById("channel-title");
+      const messagesEl = document.getElementById("messages");
+      const statusEl = document.getElementById("status");
+      const composer = document.getElementById("composer");
+      const messageInput = document.getElementById("message-input");
+      const sendBtn = document.getElementById("send-btn");
+      const realtimeStatus = document.getElementById("realtime-status");
+
+      let currentChannel = null;
+      let socket = null;
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function fmtTime(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return date.toLocaleString();
+      }
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, {
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {}),
+          },
+          ...options,
+        });
+        const text = await res.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+        if (!res.ok) {
+          const msg = data?.error || data?.message || `Request failed (${res.status})`;
+          throw new Error(msg);
+        }
+        return data;
+      }
+
+      function renderUser(user) {
+        const avatar = user.avatar
+          ? `<img class="avatar" src="${escapeHtml(user.avatar)}" alt="" />`
+          : `<div class="avatar"></div>`;
+        userBar.innerHTML = `
+          ${avatar}
+          <div class="user-meta">
+            <div class="name">${escapeHtml(user.username || "Vortex user")}</div>
+            <div class="sub">${escapeHtml(user.rank || "Signed in")}</div>
+          </div>
+          <button id="logout-btn" class="btn btn-secondary">Logout</button>
+        `;
+        document.getElementById("logout-btn").addEventListener("click", async () => {
+          await api("/api/logout", { method: "POST" });
+          window.location.reload();
+        });
+      }
+
+      function setStatus(text, isError = false) {
+        statusEl.textContent = text;
+        statusEl.className = "status" + (isError ? " error" : "");
+        statusEl.hidden = !text;
+      }
+
+      function renderMessage(msg) {
+        const el = document.createElement("article");
+        el.className = "message";
+        el.dataset.id = msg.id || "";
+        const avatar = msg.author?.avatar
+          ? `<img class="avatar" src="${escapeHtml(msg.author.avatar)}" alt="" />`
+          : `<div class="avatar"></div>`;
+        el.innerHTML = `
+          ${avatar}
+          <div class="body">
+            <div class="head">
+              <span class="author" style="${msg.author?.color ? `color:${escapeHtml(msg.author.color)}` : ""}">
+                ${escapeHtml(msg.author?.username || "Unknown")}
+              </span>
+              <span class="time">${escapeHtml(fmtTime(msg.createdAt))}</span>
+            </div>
+            <div class="content">${escapeHtml(msg.content || "")}</div>
+          </div>
+        `;
+        return el;
+      }
+
+      function addOrUpdateMessage(msg, { updateOnly = false } = {}) {
+        if (!msg?.id) return;
+        const existing = messagesEl.querySelector(`[data-id="${CSS.escape(msg.id)}"]`);
+        if (existing) {
+          const content = existing.querySelector(".content");
+          if (content) content.textContent = msg.content || "";
+          return;
+        }
+        if (updateOnly) return;
+        const wasNearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+        messagesEl.appendChild(renderMessage(msg));
+        if (wasNearBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      async function loadChannels() {
+        setStatus("Loading channels...");
+        const data = await api("/api/channels");
+        const guild = data.guild || {};
+        guildInfo.innerHTML = `
+          <div class="name">${escapeHtml(guild.name || "Guild")}</div>
+          <div class="desc">${escapeHtml(guild.description || "No description")}</div>
+        `;
+
+        channelsEl.innerHTML = "";
+        const channels = (data.channels || []).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        if (!channels.length) {
+          channelsEl.innerHTML = `<div class="empty">No channels available.</div>`;
+          setStatus("");
+          return;
+        }
+
+        for (const channel of channels) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "channel-btn";
+          btn.dataset.channelId = channel.id;
+          btn.innerHTML = `
+            <span># ${escapeHtml(channel.name)}</span>
+            <span class="meta">${escapeHtml(channel.description || channel.type || "channel")}</span>
+          `;
+          btn.addEventListener("click", () => selectChannel(channel));
+          channelsEl.appendChild(btn);
+        }
+
+        setStatus("");
+        await selectChannel(channels[0]);
+      }
+
+      async function selectChannel(channel) {
+        currentChannel = channel;
+        channelTitle.textContent = `# ${channel.name}`;
+        for (const btn of channelsEl.querySelectorAll(".channel-btn")) {
+          btn.classList.toggle("active", btn.dataset.channelId === channel.id);
+        }
+        composer.hidden = false;
+        messageInput.placeholder = `Message #${channel.name}`;
+        await loadMessages(channel.id);
+        if (socket?.connected) socket.emit("chat:join", { channelId: channel.id });
+      }
+
+      async function loadMessages(channelId) {
+        setStatus("Loading messages...");
+        messagesEl.innerHTML = "";
+        try {
+          const data = await api(`/api/messages/${encodeURIComponent(channelId)}?limit=50`);
+          const messages = data.messages || [];
+          if (!messages.length) {
+            messagesEl.innerHTML = `<div class="empty">No messages yet. Say hello!</div>`;
+          } else {
+            for (const msg of messages) messagesEl.appendChild(renderMessage(msg));
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
+          setStatus("");
+        } catch (err) {
+          setStatus(err.message, true);
+        }
+      }
+
+      function connectRealtime() {
+        socket = io({ withCredentials: true });
+
+        socket.on("connect", () => {
+          realtimeStatus.textContent = "live";
+          realtimeStatus.style.background = "rgba(74,222,128,.18)";
+          realtimeStatus.style.color = "#4ade80";
+          if (currentChannel?.id) socket.emit("chat:join", { channelId: currentChannel.id });
+        });
+
+        socket.on("disconnect", () => {
+          realtimeStatus.textContent = "offline";
+          realtimeStatus.style.background = "rgba(124,92,255,.18)";
+          realtimeStatus.style.color = "#9b84ff";
+        });
+
+        socket.on("chat:message", (msg) => {
+          if (msg?.channelId !== currentChannel?.id) return;
+          const empty = messagesEl.querySelector(".empty");
+          if (empty) empty.remove();
+          addOrUpdateMessage(msg);
+        });
+
+        socket.on("chat:messageUpdated", (msg) => {
+          if (msg?.channelId !== currentChannel?.id) return;
+          addOrUpdateMessage(msg, { updateOnly: true });
+        });
+
+        socket.on("chat:messageDeleted", ({ id, channelId }) => {
+          if (channelId !== currentChannel?.id) return;
+          const el = messagesEl.querySelector(`[data-id="${CSS.escape(id)}"]`);
+          if (el) el.remove();
+        });
+
+        socket.on("chat:error", (err) => {
+          console.warn("Realtime error", err);
+        });
+      }
+
+      composer.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const content = messageInput.value.trim();
+        if (!content || !currentChannel?.id) return;
+
+        sendBtn.disabled = true;
+        try {
+          const data = await api(`/api/messages/${encodeURIComponent(currentChannel.id)}`, {
+            method: "POST",
+            body: JSON.stringify({ content }),
+          });
+          messageInput.value = "";
+          if (data?.message) {
+            const empty = messagesEl.querySelector(".empty");
+            if (empty) empty.remove();
+            addOrUpdateMessage(data.message);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
+        } catch (err) {
+          setStatus(err.message, true);
+        } finally {
+          sendBtn.disabled = false;
+          messageInput.focus();
+        }
+      });
+
+      async function init() {
+        try {
+          const me = await api("/api/me");
+          if (!me.signedIn) {
+            signedOut.hidden = false;
+            return;
+          }
+          signedIn.hidden = false;
+          renderUser(me.user || {});
+          connectRealtime();
+          await loadChannels();
+        } catch (err) {
+          signedOut.hidden = false;
+          signedOut.insertAdjacentHTML(
+            "beforeend",
+            `<p class="status error">${escapeHtml(err.message)}</p>`
+          );
+        }
+      }
+
+      init();
+    </script>
+  </body>
+</html>

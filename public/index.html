@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Orbit — chat together</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <style>
         :root {
             color-scheme: dark;
@@ -358,6 +359,10 @@
         .join-button:hover { background: var(--accent-hover); }
         .join-secondary { display: block; margin: 12px auto 0; padding: 4px; border: 0; color: #bda8ef; background: transparent; font-size: 11px; }
         .join-secondary[hidden] { display: none; }
+        .vortex-auth-button { display:block; width:100%; margin-top:10px; padding:10px 12px; border-radius:10px; border:1px solid rgba(166,139,255,.35); background:rgba(123,97,255,.12); color:#efeaff; font:inherit; cursor:pointer; }
+        .vortex-auth-button:hover { background:rgba(123,97,255,.2); }
+        .vortex-banner { margin:0 0 12px; padding:10px 12px; border-radius:10px; background:rgba(123,97,255,.14); border:1px solid rgba(166,139,255,.28); color:#efeaff; font-size:13px; }
+        .vortex-banner[hidden], .vortex-settings-status[hidden] { display:none; }
         .join-error { min-height: 18px; margin-top: 12px; color: #ff9898; font-size: 12px; }
         .join-error.success { color: #9bd6af; }
         .toast { position: fixed; right: 18px; bottom: 18px; z-index: 3; max-width: min(360px, calc(100% - 36px)); padding: 12px 16px; border: 1px solid #5a4828; border-radius: 9px; color: #e8cf9b; background: #28241b; font-size: 12px; }
@@ -673,6 +678,7 @@
                 <div class="message-list" id="message-list" aria-live="polite"></div>
             </div>
             <div class="composer-wrap">
+                <div class="vortex-banner" id="vortex-channel-notice" hidden></div>
                 <div class="typing-indicator" id="typing-indicator" role="status" aria-live="polite"></div>
                 <div class="composer-context" id="reply-context" hidden>
                     <span class="composer-context-copy" id="reply-context-copy"></span>
@@ -720,6 +726,7 @@
             <div class="join-brand"><div class="brand-mark">o</div><strong>Orbit</strong></div>
             <h1 id="join-title">Welcome back.</h1>
             <p id="auth-description">Sign in to join the conversation.</p>
+            <div class="vortex-banner" id="vortex-pending-banner" hidden></div>
             <div class="auth-tabs" role="tablist" aria-label="Account access">
                 <button class="auth-tab active" id="login-tab" type="button" role="tab" aria-selected="true">Sign in</button>
                 <button class="auth-tab" id="register-tab" type="button" role="tab" aria-selected="false">Create account</button>
@@ -743,6 +750,7 @@
                 </div>
             </div>
             <button class="join-button" id="auth-submit" type="submit">Sign in</button>
+            <button class="vortex-auth-button" id="vortex-auth-button" type="button">Continue with Vortex</button>
             <button class="join-secondary" id="forgot-password" type="button">Forgot password?</button>
             <div class="join-error" id="join-error" role="alert"></div>
         </form>
@@ -1088,9 +1096,10 @@
         const channelDetails = {
             general: { name: 'general', topic: 'The place for everyday conversation.' },
             'ai-lab': { name: 'ideas', topic: 'Share projects, ideas, and things you’re curious about.' },
-            'off-topic': { name: 'off-topic', topic: 'Games, music, and everything else.' }
+            'off-topic': { name: 'off-topic', topic: 'Games, music, and everything else.' },
+            'vortex-global': { name: 'vortex-global', topic: 'Global chat bridged with Vortex. Connect Vortex in Settings to send messages.' }
         };
-        const appState = { user: null, profile: null, onboarding: { completed: false, steps: [], interests: [], notifications: 'mentions' }, onboardingQueue: Promise.resolve(), memberProfiles: new Map(), members: { online: [], offline: [] }, channel: 'general', channels: [], channelUnread: new Map(), blockedUsers: new Set(), channelCanInvite: false, hasMoreMessages: false, loadingOlder: false, activeDm: null, activeThreadId: null, threadReplyTarget: null, editingMessage: null, reportingMessage: null, typingChannel: null, replyTarget: null, selectedImage: null, dmSeen: new Map(), dmUnread: new Set(), dmsInitialized: false, dmPolling: false, pingAudioContext: null, lastMessageId: 0, lastMessageRevision: 0, polling: false, channelLoading: false, authMode: 'login', announcements: [], lastAnnouncementId: 0, readAnnouncementId: 0, announcementPolling: false, typingPolling: false, voice: { channel: null, stream: null, peers: new Map(), cursor: 0, polling: false, interval: null } };
+        const appState = { user: null, profile: null, onboarding: { completed: false, steps: [], interests: [], notifications: 'mentions' }, onboardingQueue: Promise.resolve(), memberProfiles: new Map(), members: { online: [], offline: [] }, channel: 'general', channels: [], channelUnread: new Map(), blockedUsers: new Set(), channelCanInvite: false, hasMoreMessages: false, loadingOlder: false, activeDm: null, activeThreadId: null, threadReplyTarget: null, editingMessage: null, reportingMessage: null, typingChannel: null, replyTarget: null, selectedImage: null, dmSeen: new Map(), dmUnread: new Set(), dmsInitialized: false, dmPolling: false, pingAudioContext: null, lastMessageId: 0, lastMessageRevision: 0, polling: false, channelLoading: false, authMode: 'login', announcements: [], lastAnnouncementId: 0, readAnnouncementId: 0, announcementPolling: false, typingPolling: false, voice: { channel: null, stream: null, peers: new Map(), cursor: 0, polling: false, interval: null }, vortex: { linked: false }, vortexPending: null };
         const messageList = document.getElementById('message-list');
         const messageScroll = document.getElementById('message-scroll');
         const messageInput = document.getElementById('message-input');
@@ -1481,10 +1490,11 @@
             });
         }
 
-        function setUser(user) {
+        function setUser(user, options = {}) {
             if (!user) stopTyping();
             if (!user) void leaveVoice();
             appState.user = user;
+            appState.vortex = options.vortex || appState.vortex || { linked: false };
             joinScreen.hidden = Boolean(user);
             if (user) {
                 appState.onboarding = { completed: false, steps: [], interests: [], notifications: 'mentions' };
@@ -1507,6 +1517,8 @@
                 appState.profile = null;
                 appState.onboarding = { completed: false, steps: [], interests: [], notifications: 'mentions' };
                 appState.onboardingQueue = Promise.resolve();
+                appState.vortex = { linked: false };
+                appState.vortexPending = null;
                 if (document.getElementById('onboarding-dialog').open) {
                     document.getElementById('onboarding-dialog').close();
                 }
@@ -2346,6 +2358,36 @@
             document.getElementById('image-preview-wrap').hidden = true;
         }
 
+        function updateVortexChannelUi() {
+            const notice = document.getElementById('vortex-channel-notice');
+            const form = document.getElementById('message-form');
+            const help = document.querySelector('.composer-help');
+            const isVortex = appState.channel === 'vortex-global' && !appState.activeDm;
+            const linked = Boolean(appState.vortex?.linked);
+            if (isVortex && !linked) {
+                notice.hidden = false;
+                notice.textContent = '';
+                notice.append(document.createTextNode('Connect your Vortex account in Settings to send messages in #vortex-global. '));
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'join-secondary';
+                btn.style.display = 'inline';
+                btn.style.margin = '0';
+                btn.style.padding = '0';
+                btn.style.fontSize = '13px';
+                btn.textContent = 'Open Settings';
+                btn.addEventListener('click', () => { if (appState.user) openProfile(appState.user.name); });
+                notice.append(btn);
+                form.hidden = true;
+                if (help) help.hidden = true;
+            } else {
+                notice.hidden = true;
+                notice.textContent = '';
+                form.hidden = false;
+                if (help) help.hidden = false;
+            }
+        }
+
         async function loadChannel() {
             const channelId = appState.channel;
             if (appState.voice.channel && appState.voice.channel !== channelId) void leaveVoice();
@@ -2384,6 +2426,7 @@
             document.getElementById('welcome-title').textContent = `Welcome to #${channel.name}`;
             document.querySelector('.welcome').hidden = false;
             messageInput.placeholder = `Message #${channel.name}`;
+            updateVortexChannelUi();
             document.querySelectorAll('.dm-link').forEach(link => link.classList.remove('active'));
             document.querySelectorAll('.channel-link').forEach(link => {
                 link.classList.toggle('active', link.dataset.channel === appState.channel);
@@ -2855,6 +2898,7 @@
             document.getElementById('channel-name').textContent = username;
             document.getElementById('channel-topic').textContent = 'Direct message';
             messageInput.placeholder = `Message @${username}`;
+            updateVortexChannelUi();
             document.querySelectorAll('.channel-link').forEach(link => link.classList.remove('active'));
             document.querySelectorAll('.dm-link').forEach(link => {
                 link.classList.toggle('active', link.dataset.dm.toLowerCase() === userId);
@@ -3160,6 +3204,52 @@
                     }
                 });
             }
+            if (ownProfile) {
+                const vortexSection = document.createElement('div');
+                vortexSection.style.marginTop = '14px';
+                vortexSection.style.padding = '12px';
+                vortexSection.style.border = '1px solid rgba(166,139,255,.22)';
+                vortexSection.style.borderRadius = '10px';
+                vortexSection.style.background = 'rgba(123,97,255,.08)';
+                const vortexTitle = document.createElement('div');
+                vortexTitle.style.fontWeight = '600';
+                vortexTitle.style.marginBottom = '6px';
+                vortexTitle.textContent = 'Vortex Chat';
+                const vortexStatus = document.createElement('div');
+                vortexStatus.className = 'vortex-settings-status';
+                vortexStatus.style.fontSize = '13px';
+                vortexStatus.style.marginBottom = '10px';
+                const vx = appState.vortex || { linked: false };
+                vortexStatus.textContent = vx.linked
+                    ? `Connected as @${vx.username || 'Vortex user'}. Messages you send in #vortex-global will be bridged to Vortex.`
+                    : 'Not connected. Connect Vortex to send messages in #vortex-global.';
+                const vortexBtn = document.createElement('button');
+                vortexBtn.type = 'button';
+                vortexBtn.className = vx.linked ? '' : 'primary';
+                vortexBtn.textContent = vx.linked ? 'Disconnect Vortex' : 'Connect Vortex';
+                vortexBtn.addEventListener('click', async () => {
+                    if (!vx.linked) {
+                        window.location.href = '/auth/vortex?intent=link';
+                        return;
+                    }
+                    if (!confirm('Disconnect your Vortex account from Orbit?')) return;
+                    vortexBtn.disabled = true;
+                    try {
+                        const result = await request('/api/settings/vortex/disconnect', { method: 'POST', body: '{}' });
+                        appState.vortex = result.vortex || { linked: false };
+                        showToast('Vortex account disconnected.');
+                        renderProfileCard(profile, requestedUsername);
+                        updateVortexChannelUi();
+                    } catch (error) {
+                        showToast(error.message);
+                    } finally {
+                        vortexBtn.disabled = false;
+                    }
+                });
+                vortexSection.append(vortexTitle, vortexStatus, vortexBtn);
+                body.append(vortexSection);
+            }
+
             const actions = document.createElement('div');
             actions.className = 'profile-actions';
             if (!ownProfile) {
@@ -4254,13 +4344,42 @@
             });
         });
 
+        function renderVortexPendingBanner() {
+            const banner = document.getElementById('vortex-pending-banner');
+            const pending = appState.vortexPending;
+            if (!pending) {
+                banner.hidden = true;
+                banner.textContent = '';
+                return;
+            }
+            const name = pending.username ? `@${pending.username}` : 'your Vortex account';
+            banner.hidden = false;
+            banner.textContent = `Vortex account ${name} is ready to connect. Sign in or create an Orbit account to finish linking it.`;
+        }
+
+        async function loadVortexPending() {
+            try {
+                const result = await request('/api/vortex/pending');
+                appState.vortexPending = result.pending || null;
+            } catch {
+                appState.vortexPending = null;
+            }
+            renderVortexPendingBanner();
+            setAuthMode(appState.authMode);
+        }
+
         function setAuthMode(mode) {
             appState.authMode = mode;
             const registering = mode === 'register';
+            const pending = appState.vortexPending;
             document.getElementById('join-title').textContent = registering ? 'Create your account.' : 'Welcome back.';
-            document.getElementById('auth-description').textContent = registering
-                ? 'Sign up with an email and username to join the conversation.'
-                : 'Sign in with your username or email.';
+            document.getElementById('auth-description').textContent = pending
+                ? (registering
+                    ? 'Create an Orbit account to finish connecting your Vortex account.'
+                    : 'Sign in to your Orbit account to finish connecting your Vortex account.')
+                : (registering
+                    ? 'Sign up with an email and username to join the conversation.'
+                    : 'Sign in with your username or email.');
             document.getElementById('username-field').hidden = !registering;
             document.getElementById('email-field').hidden = !registering;
             document.getElementById('identifier-field').hidden = registering;
@@ -4271,12 +4390,17 @@
             document.getElementById('register-tab').setAttribute('aria-selected', String(registering));
             document.getElementById('auth-submit').textContent = registering ? 'Create account' : 'Sign in';
             document.getElementById('forgot-password').hidden = registering;
+            const vortexButton = document.getElementById('vortex-auth-button');
+            vortexButton.textContent = pending ? 'Use a different Vortex account' : 'Continue with Vortex';
             joinError.textContent = '';
             joinError.classList.remove('success');
         }
 
         document.getElementById('login-tab').addEventListener('click', () => setAuthMode('login'));
         document.getElementById('register-tab').addEventListener('click', () => setAuthMode('register'));
+        document.getElementById('vortex-auth-button').addEventListener('click', () => {
+            window.location.href = '/auth/vortex?intent=login';
+        });
         document.getElementById('forgot-password').addEventListener('click', async event => {
             const button = event.currentTarget;
             const identifier = document.getElementById('auth-identifier').value.trim();
@@ -4358,8 +4482,13 @@
                     document.getElementById('password-reset-dialog').showModal();
                     document.getElementById('password-reset-input').focus();
                 }
-                setUser(result.user);
+                appState.vortex = result.vortex || appState.vortex || { linked: false };
+                appState.vortexPending = null;
+                renderVortexPendingBanner();
+                setUser(result.user, { vortex: appState.vortex });
                 document.getElementById('auth-password').value = '';
+                if (result.vortexLinkError) showToast(result.vortexLinkError);
+                if (result.vortex?.linked) showToast(`Vortex connected as @${result.vortex.username || 'user'}.`);
             } catch (error) {
                 joinError.classList.remove('success');
                 joinError.textContent = error.message;
@@ -4372,6 +4501,7 @@
             try {
                 await request('/api/auth/logout', { method: 'POST', body: '{}' });
                 setUser(null);
+                await loadVortexPending().catch(() => {});
                 document.getElementById('auth-identifier').focus();
             } catch (error) {
                 showToast(error.message);
@@ -4477,8 +4607,27 @@
             }
         });
 
-        request('/api/session').then(result => {
-            if (result.user) setUser(result.user);
+        const params = new URLSearchParams(window.location.search);
+        const vortexPending = params.get('vortex_pending') === '1';
+        const vortexLinked = params.get('vortex_linked') === '1';
+        const vortexError = params.get('vortex_error');
+        if (vortexError) showToast(vortexError);
+        if (vortexLinked) showToast('Vortex account connected.');
+        if (vortexPending || vortexLinked || vortexError) {
+            params.delete('vortex_pending');
+            params.delete('vortex_linked');
+            params.delete('vortex_error');
+            const clean = `${window.location.pathname}${params.toString() ? `?${params}` : ''}`;
+            window.history.replaceState({}, '', clean);
+        }
+
+        request('/api/session').then(async result => {
+            appState.vortex = result.vortex || { linked: false };
+            if (result.user) {
+                await setUser(result.user, { vortex: result.vortex });
+            } else {
+                await loadVortexPending();
+            }
         }).catch(error => showToast(error.message));
 
         setInterval(() => {

@@ -1,0 +1,19 @@
+{
+  "name": "vortex-chat-integration",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Express.js example integrating Vortex Chat OAuth, chat API, and realtime events",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@vortex-chat/sdk": "^1.2.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  }
+}

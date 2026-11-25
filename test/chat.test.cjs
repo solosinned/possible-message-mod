@@ -191,6 +191,10 @@ test('serves the chat app with security headers and no external chat integration
     assert.match(page, /id="announcement-alert"/);
     assert.match(page, /id="announcement-form"/);
     assert.match(page, /id="announcement-category"/);
+    assert.match(page, /id="announcement-image"/);
+    assert.match(page, /id="announcement-alert-image"/);
+    assert.match(page, /profile-editor-preview-panel/);
+    assert.match(page, /pointerenter/);
     assert.match(page, /id="message-search-dialog"/);
     assert.match(page, /id="pins-dialog"/);
     assert.match(page, /id="thread-dialog"/);
@@ -268,7 +272,6 @@ test('requires an account session before reading channels or messages', async t 
     assert.equal(notifications.status, 401);
     assert.equal(onboarding.status, 401);
 });
-
 test('creates an account including the former Orbit bot name and prevents duplicates', async t => {
     const baseUrl = await startServer(t);
     const alice = await join(baseUrl, 'Alice', 'alice@example.com');

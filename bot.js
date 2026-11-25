@@ -4,6 +4,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const { createSupabaseClients, SupabaseStore } = require('./supabase-store.js');
+const vortexSdk = require('@vortex-chat/sdk');
+const { Vortex, VortexError } = vortexSdk;
 
 const HOST = resolveHost();
 const PORT = resolvePort();
@@ -107,6 +109,13 @@ const ONBOARDING_STEPS = new Set(['channels', 'profile', 'message']);
 const ONBOARDING_INTERESTS = new Set(['conversation', 'ideas', 'games', 'music']);
 const ONBOARDING_NOTIFICATIONS = new Set(['all', 'mentions', 'quiet']);
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const VORTEX_CLIENT_ID = process.env.VORTEX_CLIENT_ID || 'vtx_4d21b21ace36baeb7916';
+const VORTEX_CLIENT_SECRET = process.env.VORTEX_CLIENT_SECRET || '';
+const VORTEX_REDIRECT_URI = process.env.VORTEX_REDIRECT_URI || 'http://localhost:3000/auth/vortex/callback';
+const VORTEX_BRIDGE_CHANNEL_ID = process.env.VORTEX_BRIDGE_CHANNEL_ID || '';
+const ORBIT_VORTEX_CHANNEL_ID = 'vortex-global';
+const VORTEX_OAUTH_TTL_MS = 10 * 60 * 1000;
+const VORTEX_PENDING_LINK_TTL_MS = 30 * 60 * 1000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_ATTEMPT_LIMIT = 10;
 const scrypt = promisify(crypto.scrypt);
@@ -115,7 +124,8 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8
 const CHANNELS = [
     { id: 'general', name: 'general', topic: 'The place for everyday conversation.' },
     { id: 'ai-lab', name: 'ideas', topic: 'Share projects, ideas, and things you’re curious about.' },
-    { id: 'off-topic', name: 'off-topic', topic: 'Games, music, and everything else.' }
+    { id: 'off-topic', name: 'off-topic', topic: 'Games, music, and everything else.' },
+    { id: ORBIT_VORTEX_CHANNEL_ID, name: 'vortex-global', topic: 'Global chat bridged with Vortex. Connect your Vortex account in Settings to send messages here.' }
 ];
 
 function getUserStorePath(environment = process.env) {
@@ -190,6 +200,7 @@ function createChatState() {
     return {
         accounts: new Map(),
         sessions: new Map(),
+        activityDirtyAccounts: new Set(),
         messages: new Map(CHANNELS.map(channel => [channel.id, []])),
         nextMessageId: 1,
         messageRevisions: new Map(CHANNELS.map(channel => [channel.id, 1])),
@@ -197,6 +208,12 @@ function createChatState() {
         announcements: [],
         nextAnnouncementId: Date.now() * 1000,
         announcementStorePath: null,
+        vortexClient: null,
+        pendingVortexOAuth: new Map(),
+        pendingVortexLinks: new Map(),
+        vortexUserIdToAccount: new Map(),
+        vortexBridge: null,
+        vortexBridgeSeenIds: new Set(),
         privateChannels: new Map(),
         reports: [],
         voiceRooms: new Map(),
@@ -209,7 +226,6 @@ function createChatState() {
         authQueue: Promise.resolve(),
         messageQueue: Promise.resolve(),
         activityTimer: null,
-        activityDirtyAccounts: new Set(),
         userStorePath: null,
         supabaseClients: null,
         supabaseStore: null
@@ -330,6 +346,26 @@ async function loadAccounts(state, userStorePath, ownerBootstrapPassword) {
             migrated = true;
         }
         account.onboarding ??= { completed: false, steps: [], interests: [], notifications: 'mentions' };
+        if (!account.vortex || typeof account.vortex !== 'object' || Array.isArray(account.vortex)) {
+            account.vortex = { linked: false, userId: null, username: null, avatar: null, linkedAt: null, tokens: null };
+            migrated = true;
+        } else {
+            account.vortex.linked = account.vortex.linked === true;
+            account.vortex.userId = typeof account.vortex.userId === 'string' ? account.vortex.userId : null;
+            account.vortex.username = typeof account.vortex.username === 'string' ? account.vortex.username : null;
+            account.vortex.avatar = typeof account.vortex.avatar === 'string' ? account.vortex.avatar : null;
+            account.vortex.linkedAt = typeof account.vortex.linkedAt === 'string' ? account.vortex.linkedAt : null;
+            if (!account.vortex.tokens || typeof account.vortex.tokens !== 'object' || Array.isArray(account.vortex.tokens)) {
+                account.vortex.tokens = null;
+            }
+            if (!account.vortex.linked) {
+                account.vortex.userId = null;
+                account.vortex.username = null;
+                account.vortex.avatar = null;
+                account.vortex.linkedAt = null;
+                account.vortex.tokens = null;
+            }
+        }
         if (account.onboarding && typeof account.onboarding === 'object'
             && !Array.isArray(account.onboarding)) {
             if (Array.isArray(account.onboarding.steps) && account.onboarding.steps.includes('bot')) {
@@ -401,10 +437,12 @@ async function loadAccounts(state, userStorePath, ownerBootstrapPassword) {
             banned: false,
             ghosted: false,
             ghostedUntil: null,
-            warnings: []
+            warnings: [],
+            vortex: { linked: false, userId: null, username: null, avatar: null, linkedAt: null, tokens: null }
         });
         await saveAccounts(state, userStorePath);
     }
+    rebuildVortexLookup(state);
 }
 
 function validAvatar(value) {
@@ -783,9 +821,9 @@ function loadStoredMessages(state, stored, messageStorePath = 'Supabase app data
     if (migratedBotMessages && !state.supabaseStore) return saveMessages(state);
 }
 
-function saveMessages(state) {
+function saveMessages(state, changes) {
     const save = async () => {
-        if (state.supabaseStore) return state.supabaseStore.save(state);
+        if (state.supabaseStore) return state.supabaseStore.saveMessages(state, changes);
         if (!state.messageStorePath) throw new Error('Message store path is not configured.');
         const stored = {
             messages: Object.fromEntries(state.messages),
@@ -853,6 +891,240 @@ function updateAccountFields(state, account, changes, userStorePath) {
     });
 }
 
+function rebuildVortexLookup(state) {
+    state.vortexUserIdToAccount = new Map();
+    for (const account of state.accounts.values()) {
+        const vx = account.vortex;
+        if (vx?.linked && typeof vx.userId === 'string' && vx.userId) {
+            state.vortexUserIdToAccount.set(vx.userId, account.username.toLowerCase());
+        }
+    }
+}
+
+function getVortexClient(state) {
+    if (!VORTEX_CLIENT_SECRET) return null;
+    if (state.vortexClient) return state.vortexClient;
+    state.vortexClient = new Vortex({
+        clientId: VORTEX_CLIENT_ID,
+        clientSecret: VORTEX_CLIENT_SECRET
+    });
+    return state.vortexClient;
+}
+
+function safeVortexProfile(account) {
+    const vx = account?.vortex;
+    if (!vx?.linked) {
+        return { linked: false };
+    }
+    return {
+        linked: true,
+        userId: vx.userId || null,
+        username: vx.username || null,
+        avatar: vx.avatar || null,
+        linkedAt: vx.linkedAt || null
+    };
+}
+
+function getLinkedVortexAccount(state, vortexUserId) {
+    const username = state.vortexUserIdToAccount.get(vortexUserId);
+    return username ? state.accounts.get(username) || null : null;
+}
+
+async function saveVortexAccount(state, account) {
+    // Vortex token/profile updates are account data; persist through normal account save.
+    await saveAccounts(state, state.userStorePath);
+}
+
+function clearExpiredVortexOAuth(state) {
+    const now = Date.now();
+    for (const [key, pending] of state.pendingVortexOAuth.entries()) {
+        if (now - pending.createdAt > VORTEX_OAUTH_TTL_MS) state.pendingVortexOAuth.delete(key);
+    }
+}
+
+function clearExpiredPendingVortexLinks(state) {
+    const now = Date.now();
+    for (const [id, pending] of state.pendingVortexLinks.entries()) {
+        if (now - pending.createdAt > VORTEX_PENDING_LINK_TTL_MS) state.pendingVortexLinks.delete(id);
+    }
+}
+
+function getPendingVortexLinkFromRequest(state, request) {
+    clearExpiredPendingVortexLinks(state);
+    const cookieHeader = String(request.headers.cookie || '');
+    const pendingCookie = cookieHeader.split(';').map(part => part.trim()).find(part => part.startsWith('vortex_link='));
+    const pendingId = pendingCookie ? pendingCookie.slice('vortex_link='.length) : '';
+    if (!pendingId) return null;
+    const pending = state.pendingVortexLinks.get(pendingId);
+    if (!pending) return null;
+    return { pendingId, pending };
+}
+
+function clearPendingVortexLinkCookie() {
+    const cookie = ['vortex_link=', 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=0'];
+    if (process.env.COOKIE_SECURE === 'true') cookie.push('Secure');
+    return cookie.join('; ');
+}
+
+async function consumePendingVortexLink(state, request, account) {
+    const entry = getPendingVortexLinkFromRequest(state, request);
+    if (!entry) return { linked: false };
+    const { pendingId, pending } = entry;
+    if (Date.now() - pending.createdAt > VORTEX_PENDING_LINK_TTL_MS) {
+        state.pendingVortexLinks.delete(pendingId);
+        return { linked: false, error: 'Your Vortex connection request expired. Please connect Vortex again.' };
+    }
+
+    const existing = getLinkedVortexAccount(state, pending.userId);
+    if (existing && existing.username.toLowerCase() !== account.username.toLowerCase()) {
+        state.pendingVortexLinks.delete(pendingId);
+        return { linked: false, error: 'That Vortex account is already linked to another site account.' };
+    }
+
+    account.vortex = {
+        linked: true,
+        userId: pending.userId,
+        username: pending.username || null,
+        avatar: pending.avatar || null,
+        linkedAt: account.vortex?.linkedAt || new Date().toISOString(),
+        tokens: pending.tokens || null
+    };
+    rebuildVortexLookup(state);
+    await saveVortexAccount(state, account);
+    state.pendingVortexLinks.delete(pendingId);
+    return { linked: true };
+}
+
+function getUserVortexSession(state, account) {
+    const client = getVortexClient(state);
+    const vx = account?.vortex;
+    if (!client || !vx?.linked || !vx.tokens) return null;
+    return client.forUser(vx.tokens, {
+        onRefresh: async (newTokens) => {
+            vx.tokens = newTokens;
+            try {
+                await saveVortexAccount(state, account);
+            } catch (error) {
+                console.error(`Could not save refreshed Vortex tokens for ${account.username}: ${error.message}`);
+            }
+        }
+    });
+}
+
+function rememberVortexBridgeId(state, id) {
+    if (!id) return false;
+    const key = String(id);
+    if (state.vortexBridgeSeenIds.has(key)) return true;
+    state.vortexBridgeSeenIds.add(key);
+    if (state.vortexBridgeSeenIds.size > 2000) {
+        const oldest = state.vortexBridgeSeenIds.values().next().value;
+        state.vortexBridgeSeenIds.delete(oldest);
+    }
+    return false;
+}
+
+function normalizeVortexInboundMessage(payload) {
+    const author = payload?.author || {};
+    const content = typeof payload?.content === 'string' ? payload.content.trim() : '';
+    return {
+        id: String(payload?.id || ''),
+        channelId: String(payload?.channelId || ''),
+        content,
+        authorId: String(author.id || payload?.authorId || ''),
+        authorUsername: String(author.username || payload?.authorUsername || 'Vortex User'),
+        authorAvatar: author.avatar || null,
+        createdAt: payload?.createdAt || payload?.timestamp || new Date().toISOString()
+    };
+}
+
+async function persistBridgeMessage(state, message) {
+    const channelMessages = state.messages.get(ORBIT_VORTEX_CHANNEL_ID);
+    if (!channelMessages) return null;
+    const evictedMessage = channelMessages.length >= MESSAGE_HISTORY_LIMIT ? channelMessages[0] : null;
+    channelMessages.push(message);
+    state.messageRevisions.set(ORBIT_VORTEX_CHANNEL_ID, (state.messageRevisions.get(ORBIT_VORTEX_CHANNEL_ID) || 1) + 1);
+    if (channelMessages.length > MESSAGE_HISTORY_LIMIT) channelMessages.shift();
+    try {
+        await saveMessages(state, {
+            messages: [message],
+            removedMessages: evictedMessage ? [{ channelId: ORBIT_VORTEX_CHANNEL_ID, id: evictedMessage.id }] : []
+        });
+    } catch (error) {
+        console.error(`Could not save Vortex bridge message: ${error.message}`);
+    }
+    return message;
+}
+
+async function handleInboundVortexBridgeMessage(state, payload) {
+    if (!VORTEX_BRIDGE_CHANNEL_ID) return;
+    const msg = normalizeVortexInboundMessage(payload);
+    if (!msg.id || msg.channelId !== VORTEX_BRIDGE_CHANNEL_ID) return;
+    if (rememberVortexBridgeId(state, msg.id)) return;
+    // Avoid loops: if this Vortex user is linked to an Orbit account and we recently sent it, dedupe by id is enough.
+    const linkedAccount = msg.authorId ? getLinkedVortexAccount(state, msg.authorId) : null;
+    const author = linkedAccount ? linkedAccount.username : `Vortex:${msg.authorUsername}`;
+    const message = {
+        id: state.nextMessageId++,
+        channelId: ORBIT_VORTEX_CHANNEL_ID,
+        revision: state.messageRevisions.get(ORBIT_VORTEX_CHANNEL_ID) || 1,
+        author,
+        content: msg.content || '[Vortex attachment/message]',
+        kind: 'user',
+        reactions: [],
+        pinned: false,
+        createdAt: msg.createdAt,
+        source: 'vortex',
+        vortexMessageId: msg.id,
+        vortexAuthorId: msg.authorId || null,
+        vortexAuthorUsername: msg.authorUsername || null,
+        vortexAuthorAvatar: msg.authorAvatar || null
+    };
+    await persistBridgeMessage(state, message);
+}
+
+async function ensureVortexBridge(state) {
+    const client = getVortexClient(state);
+    if (!client || !VORTEX_BRIDGE_CHANNEL_ID || state.vortexBridge?.connecting || state.vortexBridge?.realtime) return;
+    state.vortexBridge = { connecting: true, realtime: null };
+    try {
+        const appSession = client.app();
+        const realtime = await appSession.connect({ channels: [VORTEX_BRIDGE_CHANNEL_ID] });
+        realtime.on('ready', () => console.log(`[vortex-bridge] Connected to Vortex channel ${VORTEX_BRIDGE_CHANNEL_ID}`));
+        realtime.on('message', payload => { handleInboundVortexBridgeMessage(state, payload).catch(err => console.error('[vortex-bridge] inbound error:', err.message)); });
+        realtime.on('edit', payload => {
+            const id = String(payload?.id || '');
+            if (!id) return;
+            const channelMessages = state.messages.get(ORBIT_VORTEX_CHANNEL_ID) || [];
+            const existing = channelMessages.find(m => m.vortexMessageId === id);
+            if (!existing) return;
+            existing.content = typeof payload?.content === 'string' ? payload.content : existing.content;
+            existing.revision = (state.messageRevisions.get(ORBIT_VORTEX_CHANNEL_ID) || 1);
+            state.messageRevisions.set(ORBIT_VORTEX_CHANNEL_ID, existing.revision + 1);
+            saveMessages(state, { messages: [existing] }).catch(err => console.error('[vortex-bridge] edit save error:', err.message));
+        });
+        realtime.on('delete', payload => {
+            const id = String(payload?.id || '');
+            if (!id) return;
+            const channelMessages = state.messages.get(ORBIT_VORTEX_CHANNEL_ID) || [];
+            const idx = channelMessages.findIndex(m => m.vortexMessageId === id);
+            if (idx < 0) return;
+            const [removed] = channelMessages.splice(idx, 1);
+            state.messageRevisions.set(ORBIT_VORTEX_CHANNEL_ID, (state.messageRevisions.get(ORBIT_VORTEX_CHANNEL_ID) || 1) + 1);
+            saveMessages(state, { removedMessages: [{ channelId: ORBIT_VORTEX_CHANNEL_ID, id: removed.id }] }).catch(err => console.error('[vortex-bridge] delete save error:', err.message));
+        });
+        realtime.on('error', err => console.error('[vortex-bridge] realtime error:', err?.message || err));
+        realtime.on('disconnect', reason => {
+            console.warn(`[vortex-bridge] disconnected: ${reason}`);
+            state.vortexBridge = { connecting: false, realtime: null };
+            setTimeout(() => { ensureVortexBridge(state).catch(e => console.error('[vortex-bridge] reconnect failed:', e.message)); }, 5000).unref?.();
+        });
+        state.vortexBridge = { connecting: false, realtime };
+    } catch (error) {
+        console.error(`[vortex-bridge] Could not connect: ${error.message}`);
+        state.vortexBridge = { connecting: false, realtime: null };
+    }
+}
+
 function checkAuthLimit(state, key) {
     const now = Date.now();
     let attempt = state.authAttempts.get(key);
@@ -898,7 +1170,15 @@ function createAccountRecord(username, email, passwordDetails = {}, authUserId =
         banned: false,
         ghosted: false,
         ghostedUntil: null,
-        warnings: []
+        warnings: [],
+        vortex: {
+            linked: false,
+            userId: null,
+            username: null,
+            avatar: null,
+            linkedAt: null,
+            tokens: null
+        }
     };
 }
 
@@ -952,6 +1232,12 @@ function sendJson(response, statusCode, payload, headers = {}) {
         ...headers
     });
     response.end(JSON.stringify(payload));
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[character]);
 }
 
 function readSessionId(request) {
@@ -1107,7 +1393,7 @@ async function createChatServer({
                 return;
             }
             response.writeHead(200, {
-                'Content-Type': 'image/png',
+                'Content-Type': pathname.endsWith('.webm') ? 'video/webm' : 'image/png',
                 'Content-Length': size,
                 'Cache-Control': 'public, max-age=31536000, immutable',
                 'X-Content-Type-Options': 'nosniff'
@@ -1135,8 +1421,10 @@ async function createChatServer({
         if (session) trackActivity(state, session);
 
         if (request.method === 'GET' && pathname === '/api/session') {
+            const sessionAccount = session ? state.accounts.get(session.userId) : null;
             sendJson(response, 200, {
-                user: session ? { name: session.name, username: session.name } : null
+                user: sessionAccount ? { name: sessionAccount.username, username: sessionAccount.username } : null,
+                vortex: sessionAccount ? safeVortexProfile(sessionAccount) : { linked: false }
             });
             return;
         }
@@ -1216,8 +1504,19 @@ async function createChatServer({
                     }
                     state.authAttempts.delete(`register:${request.socket.remoteAddress || 'unknown'}`);
                     const headers = createSession(state, result.account);
+                    const linkResult = await consumePendingVortexLink(state, request, result.account).catch(error => {
+                        console.error(`Could not consume pending Vortex link: ${error.message}`);
+                        return { linked: false, error: 'Vortex account could not be linked automatically. You can connect it in Settings.' };
+                    });
+                    if (getPendingVortexLinkFromRequest(state, request)) {
+                        headers['Set-Cookie'] = [headers['Set-Cookie'], clearPendingVortexLinkCookie()];
+                    } else if (linkResult.linked || linkResult.error) {
+                        headers['Set-Cookie'] = [headers['Set-Cookie'], clearPendingVortexLinkCookie()];
+                    }
                     sendJson(response, 201, {
-                        user: { name: result.account.username, username: result.account.username }
+                        user: { name: result.account.username, username: result.account.username },
+                        vortex: safeVortexProfile(result.account),
+                        vortexLinkError: linkResult.error || null
                     }, headers);
                     return;
                 }
@@ -1244,8 +1543,17 @@ async function createChatServer({
                 }
                 state.authAttempts.delete(`register:${request.socket.remoteAddress || 'unknown'}`);
                 const headers = createSession(state, result.account);
+                const linkResult = await consumePendingVortexLink(state, request, result.account).catch(error => {
+                    console.error(`Could not consume pending Vortex link: ${error.message}`);
+                    return { linked: false, error: 'Vortex account could not be linked automatically. You can connect it in Settings.' };
+                });
+                if (linkResult.linked || linkResult.error || getPendingVortexLinkFromRequest(state, request)) {
+                    headers['Set-Cookie'] = [headers['Set-Cookie'], clearPendingVortexLinkCookie()];
+                }
                 sendJson(response, 201, {
-                    user: { name: result.account.username, username: result.account.username }
+                    user: { name: result.account.username, username: result.account.username },
+                    vortex: safeVortexProfile(result.account),
+                    vortexLinkError: linkResult.error || null
                 }, headers);
             } catch (error) {
                 sendJson(response, error.statusCode || 400, { error: error.message });
@@ -1287,8 +1595,17 @@ async function createChatServer({
                     }
                     state.authAttempts.delete(key);
                     const headers = createSession(state, account);
+                    const linkResult = await consumePendingVortexLink(state, request, account).catch(error => {
+                        console.error(`Could not consume pending Vortex link: ${error.message}`);
+                        return { linked: false, error: 'Vortex account could not be linked automatically. You can connect it in Settings.' };
+                    });
+                    if (linkResult.linked || linkResult.error || getPendingVortexLinkFromRequest(state, request)) {
+                        headers['Set-Cookie'] = [headers['Set-Cookie'], clearPendingVortexLinkCookie()];
+                    }
                     sendJson(response, 200, {
-                        user: { name: account.username, username: account.username }
+                        user: { name: account.username, username: account.username },
+                        vortex: safeVortexProfile(account),
+                        vortexLinkError: linkResult.error || null
                     }, headers);
                     return;
                 }
@@ -1305,8 +1622,17 @@ async function createChatServer({
                 }
                 state.authAttempts.delete(key);
                 const headers = createSession(state, account);
+                const linkResult = await consumePendingVortexLink(state, request, account).catch(error => {
+                    console.error(`Could not consume pending Vortex link: ${error.message}`);
+                    return { linked: false, error: 'Vortex account could not be linked automatically. You can connect it in Settings.' };
+                });
+                if (linkResult.linked || linkResult.error || getPendingVortexLinkFromRequest(state, request)) {
+                    headers['Set-Cookie'] = [headers['Set-Cookie'], clearPendingVortexLinkCookie()];
+                }
                 sendJson(response, 200, {
-                    user: { name: account.username, username: account.username }
+                    user: { name: account.username, username: account.username },
+                    vortex: safeVortexProfile(account),
+                    vortexLinkError: linkResult.error || null
                 }, headers);
             } catch (error) {
                 sendJson(response, error.statusCode || 400, { error: error.message });
@@ -1394,6 +1720,174 @@ async function createChatServer({
             return;
         }
 
+        if (request.method === 'GET' && pathname === '/api/vortex/pending') {
+            clearExpiredPendingVortexLinks(state);
+            const cookieHeader = String(request.headers.cookie || '');
+            const pendingCookie = cookieHeader.split(';').map(part => part.trim()).find(part => part.startsWith('vortex_link='));
+            const pendingId = pendingCookie ? pendingCookie.slice('vortex_link='.length) : '';
+            const pending = pendingId ? state.pendingVortexLinks.get(pendingId) : null;
+            if (!pending || Date.now() - pending.createdAt > VORTEX_PENDING_LINK_TTL_MS) {
+                if (pendingId) state.pendingVortexLinks.delete(pendingId);
+                sendJson(response, 200, { pending: null });
+                return;
+            }
+            sendJson(response, 200, {
+                pending: {
+                    username: pending.username,
+                    avatar: pending.avatar,
+                    userId: pending.userId
+                }
+            });
+            return;
+        }
+
+        if (request.method === 'GET' && pathname === '/auth/vortex') {
+            try {
+                const vortexClient = getVortexClient(state);
+                if (!vortexClient) {
+                    sendJson(response, 503, { error: 'Vortex login is not configured on this server.' });
+                    return;
+                }
+                clearExpiredVortexOAuth(state);
+                const url = new URL(request.url || '/', 'http://localhost');
+                const intent = url.searchParams.get('intent') === 'link' ? 'link' : 'login';
+                if (intent === 'link' && !session) {
+                    response.writeHead(302, { Location: '/?vortex_error=sign_in_first', 'Cache-Control': 'no-store' });
+                    response.end();
+                    return;
+                }
+                const { url: authorizeUrl, state: oauthState, codeVerifier } = vortexClient.getAuthorizeUrl({
+                    redirectUri: VORTEX_REDIRECT_URI
+                });
+                state.pendingVortexOAuth.set(oauthState, {
+                    intent,
+                    orbitUserId: intent === 'link' ? session.userId : null,
+                    sessionId,
+                    codeVerifier,
+                    createdAt: Date.now()
+                });
+                response.writeHead(302, { Location: authorizeUrl, 'Cache-Control': 'no-store' });
+                response.end();
+            } catch (error) {
+                console.error(`Vortex OAuth start failed: ${error.message}`);
+                response.writeHead(302, { Location: '/?vortex_error=start_failed', 'Cache-Control': 'no-store' });
+                response.end();
+            }
+            return;
+        }
+
+        if (request.method === 'GET' && pathname === '/auth/vortex/callback') {
+            try {
+                const vortexClient = getVortexClient(state);
+                if (!vortexClient) {
+                    response.writeHead(302, { Location: '/?vortex_error=not_configured', 'Cache-Control': 'no-store' });
+                    response.end();
+                    return;
+                }
+                const url = new URL(request.url || '/', 'http://localhost');
+                const code = url.searchParams.get('code');
+                const oauthState = url.searchParams.get('state');
+                const oauthError = url.searchParams.get('error');
+                if (oauthError) {
+                    response.writeHead(302, { Location: `/?vortex_error=${encodeURIComponent(oauthError)}`, 'Cache-Control': 'no-store' });
+                    response.end();
+                    return;
+                }
+                const pending = oauthState ? state.pendingVortexOAuth.get(oauthState) : null;
+                if (oauthState) state.pendingVortexOAuth.delete(oauthState);
+                if (!pending || typeof code !== 'string' || !code) {
+                    response.writeHead(302, { Location: '/?vortex_error=invalid_state', 'Cache-Control': 'no-store' });
+                    response.end();
+                    return;
+                }
+                if (Date.now() - pending.createdAt > VORTEX_OAUTH_TTL_MS) {
+                    response.writeHead(302, { Location: '/?vortex_error=expired', 'Cache-Control': 'no-store' });
+                    response.end();
+                    return;
+                }
+                const tokens = await vortexClient.exchangeCode({
+                    code,
+                    redirectUri: VORTEX_REDIRECT_URI,
+                    codeVerifier: pending.codeVerifier
+                });
+                let vxUser = tokens.user;
+                if (!vxUser?.id) vxUser = await vortexClient.getUser(tokens.accessToken);
+                const vxProfile = {
+                    userId: String(vxUser.id),
+                    username: vxUser.username || 'Vortex user',
+                    avatar: vxUser.avatar || null,
+                    tokens
+                };
+
+                const linkedAccount = getLinkedVortexAccount(state, vxProfile.userId);
+
+                if (pending.intent === 'link') {
+                    const linkSession = state.sessions.get(pending.sessionId);
+                    const orbitAccount = linkSession ? state.accounts.get(linkSession.userId) : null;
+                    if (!orbitAccount || orbitAccount.banned) {
+                        response.writeHead(302, { Location: '/?vortex_error=sign_in_first', 'Cache-Control': 'no-store' });
+                        response.end();
+                        return;
+                    }
+                    if (linkedAccount && linkedAccount.username.toLowerCase() !== orbitAccount.username.toLowerCase()) {
+                        response.writeHead(302, { Location: '/?vortex_error=already_linked', 'Cache-Control': 'no-store' });
+                        response.end();
+                        return;
+                    }
+                    orbitAccount.vortex = {
+                        linked: true,
+                        userId: vxProfile.userId,
+                        username: vxProfile.username,
+                        avatar: vxProfile.avatar,
+                        linkedAt: orbitAccount.vortex?.linkedAt || new Date().toISOString(),
+                        tokens: vxProfile.tokens
+                    };
+                    rebuildVortexLookup(state);
+                    await saveVortexAccount(state, orbitAccount);
+                    response.writeHead(302, { Location: '/?vortex_linked=1', 'Cache-Control': 'no-store' });
+                    response.end();
+                    return;
+                }
+
+                // intent === 'login'
+                if (linkedAccount && !linkedAccount.banned) {
+                    const headers = createSession(state, linkedAccount);
+                    headers.Location = '/?vortex_login=1';
+                    headers['Cache-Control'] = 'no-store';
+                    response.writeHead(302, headers);
+                    response.end();
+                    return;
+                }
+
+                // No linked Orbit account: store pending link and prompt user to sign in/create account.
+                clearExpiredPendingVortexLinks(state);
+                const pendingId = crypto.randomBytes(24).toString('hex');
+                state.pendingVortexLinks.set(pendingId, {
+                    ...vxProfile,
+                    createdAt: Date.now()
+                });
+                const cookie = [
+                    `vortex_link=${pendingId}`,
+                    'HttpOnly',
+                    'SameSite=Lax',
+                    'Path=/',
+                    `Max-Age=${Math.floor(VORTEX_PENDING_LINK_TTL_MS / 1000)}`
+                ];
+                if (process.env.COOKIE_SECURE === 'true') cookie.push('Secure');
+                response.writeHead(302, {
+                    Location: '/?vortex_pending=1',
+                    'Cache-Control': 'no-store',
+                    'Set-Cookie': cookie.join('; ')
+                });
+                response.end();
+            } catch (error) {
+                console.error(`Vortex OAuth callback failed: ${error.message}`);
+                response.writeHead(302, { Location: '/?vortex_error=callback_failed', 'Cache-Control': 'no-store' });
+                response.end();
+            }
+            return;
+        }
+
         if (!session) {
             sendJson(response, 401, { error: 'Please sign in to continue.' });
             return;
@@ -1405,6 +1899,31 @@ async function createChatServer({
             sendJson(response, 403, { error: 'This account is banned from the chat.' }, {
                 'Set-Cookie': 'chat_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'
             });
+            return;
+        }
+
+        if (request.method === 'GET' && (pathname === '/api/settings/vortex' || pathname === '/api/vortex/status')) {
+            sendJson(response, 200, { vortex: safeVortexProfile(signedInAccount) });
+            return;
+        }
+
+        if (request.method === 'POST' && pathname === '/api/settings/vortex/disconnect') {
+            try {
+                const current = signedInAccount.vortex;
+                if (current?.tokens?.refreshToken) {
+                    const client = getVortexClient(state);
+                    await client.revoke(current.tokens.refreshToken).catch(error => {
+                        console.warn(`Could not revoke Vortex token for ${signedInAccount.username}: ${error.message}`);
+                    });
+                }
+                signedInAccount.vortex = { linked: false };
+                rebuildVortexLookup(state);
+                await saveVortexAccount(state, signedInAccount);
+                sendJson(response, 200, { ok: true, vortex: safeVortexProfile(signedInAccount) });
+            } catch (error) {
+                console.error(`Vortex disconnect failed: ${error.message}`);
+                sendJson(response, 500, { error: 'Could not disconnect Vortex right now. Please try again.' });
+            }
             return;
         }
 
@@ -1697,7 +2216,12 @@ async function createChatServer({
                             'system'
                         );
                         try {
-                            await saveMessages(state);
+                            await saveMessages(state, {
+                                messages: [message],
+                                removedMessages: evictedMessage
+                                    ? [{ channelId: body.channel, id: evictedMessage.id }]
+                                    : []
+                            });
                         } catch (error) {
                             channelMessages.splice(0, channelMessages.length, ...previousMessages);
                             state.nextMessageId = previousNextMessageId;
@@ -1728,7 +2252,7 @@ async function createChatServer({
                 sendJson(response, 401, { error: 'Your account could not be found. Please sign in again.' });
                 return;
             }
-            sendJson(response, 200, { profile: publicProfile(account) });
+            sendJson(response, 200, { profile: publicProfile(account), vortex: safeVortexProfile(account) });
             return;
         }
 
@@ -1960,7 +2484,7 @@ async function createChatServer({
                 if (!channel.members.includes(session.userId)) {
                     channel.members.push(session.userId);
                     try {
-                        await saveMessages(state);
+                        await saveMessages(state, { privateChannels: [channel] });
                     } catch (error) {
                         channel.members.pop();
                         throw error;
@@ -1986,7 +2510,7 @@ async function createChatServer({
             const previousInviteCode = channel.inviteCode;
             channel.inviteCode = crypto.randomBytes(12).toString('hex');
             try {
-                await saveMessages(state);
+                await saveMessages(state, { privateChannels: [channel] });
             } catch (error) {
                 channel.inviteCode = previousInviteCode;
                 console.error(`Could not rotate channel invite: ${error.message}`);
@@ -2054,7 +2578,12 @@ async function createChatServer({
                     message.event = { startsAt: new Date(startsAt).toISOString(), details };
                 }
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, {
+                        messages: [message],
+                        removedMessages: evictedMessage
+                            ? [{ channelId: channel.id, id: evictedMessage.id }]
+                            : []
+                    });
                     await markMessageCount(state, account);
                 } catch (error) {
                     channelMessages.splice(0, channelMessages.length, ...previousMessages);
@@ -2099,7 +2628,7 @@ async function createChatServer({
                 message.poll.options[body.option].votes.push(username);
                 touchMessage(state, message);
                 try {
-                    await saveMessages(state);
+                    await saveMessages(state, { messages: [message] });
                 } catch (error) {
                     message.poll.options.forEach((option, index) => {
                         option.votes = previousVotes[index];
@@ -2952,6 +3481,29 @@ async function createChatServer({
                     sendJson(response, 400, { error: 'The message you are replying to could not be found.' });
                     return;
                 }
+                if (channel.id === ORBIT_VORTEX_CHANNEL_ID) {
+                    if (!VORTEX_CLIENT_SECRET) {
+                        sendJson(response, 503, { error: 'Vortex chat is not configured on this server.', code: 'VORTEX_NOT_CONFIGURED' });
+                        return;
+                    }
+                    if (!VORTEX_BRIDGE_CHANNEL_ID) {
+                        sendJson(response, 503, { error: 'Vortex global channel is not configured. Set VORTEX_BRIDGE_CHANNEL_ID.', code: 'VORTEX_NOT_CONFIGURED' });
+                        return;
+                    }
+                    if (!currentAccount?.vortex?.linked || !currentAccount.vortex.tokens) {
+                        sendJson(response, 403, { error: 'Connect your Vortex account in Settings to send messages in #vortex-global.', code: 'VORTEX_NOT_LINKED' });
+                        return;
+                    }
+                    if (accountIsGhosted(currentAccount)) {
+                        sendJson(response, 403, { error: 'Ghosted accounts cannot send messages to Vortex.', code: 'VORTEX_NOT_ALLOWED' });
+                        return;
+                    }
+                    if (image) {
+                        sendJson(response, 400, { error: 'Images are not supported in #vortex-global yet. Send a text message instead.' });
+                        return;
+                    }
+                }
+
                 session.lastMessageAt = now;
                 const channelMessages = state.messages.get(channel.id);
                 const previousMessages = [...channelMessages];
@@ -2963,6 +3515,32 @@ async function createChatServer({
                 const message = createMessage(state, channel.id, session.name, content);
                 message.image = image;
                 message.replyTo = replyTo;
+                if (channel.id === ORBIT_VORTEX_CHANNEL_ID) {
+                    try {
+                        const userSession = getUserVortexSession(state, currentAccount);
+                        const sent = await userSession.send(VORTEX_BRIDGE_CHANNEL_ID, content, replyTo?.id ? {} : undefined);
+                        const vortexMessageId = String(sent?.id || sent?.message?.id || sent?.data?.id || '');
+                        if (vortexMessageId) {
+                            message.source = 'orbit-vortex';
+                            message.vortexMessageId = vortexMessageId;
+                            rememberVortexBridgeId(state, vortexMessageId);
+                        } else {
+                            message.source = 'orbit-vortex';
+                        }
+                    } catch (error) {
+                        // Roll back created local message on send failure
+                        channelMessages.splice(0, channelMessages.length, ...previousMessages);
+                        state.nextMessageId = previousNextMessageId;
+                        state.messageRevisions.set(channel.id, previousRevision);
+                        if (error instanceof VortexError && error.status === 429) {
+                            sendJson(response, 429, { error: 'Vortex rate limit hit. Please wait a moment and try again.', code: 'VORTEX_RATE_LIMITED' });
+                            return;
+                        }
+                        console.error(`Vortex send failed for ${currentAccount.username}: ${error.message}`);
+                        sendJson(response, 502, { error: 'Could not send your message to Vortex. Please try again.', code: 'VORTEX_SEND_FAILED' });
+                        return;
+                    }
+                }
                 await markMessageCount(state, currentAccount);
                 if (accountIsGhosted(currentAccount)) message.recipientUserId = session.userId;
                 try {
@@ -3017,6 +3595,7 @@ async function main() {
     const listeningHost = address && typeof address === 'object' ? address.address : resolveHost();
     const listeningPort = address && typeof address === 'object' ? address.port : resolvePort();
     console.log(`Orbit chat is listening on ${listeningHost}:${listeningPort}`);
+    ensureVortexBridge(state).catch(err => console.error('[vortex-bridge] startup failed:', err.message));
     let shuttingDown = false;
     for (const signal of ['SIGINT', 'SIGTERM']) {
         process.once(signal, () => {
