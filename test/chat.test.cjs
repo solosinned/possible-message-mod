@@ -92,10 +92,42 @@ function createMockSupabaseClients(initialRows = []) {
                 reports: []
             };
             const accountActivity = new Map();
-            for (const { id, data } of storedRows.values()) {
+            const accountMedia = new Map();
+            const assembledRows = [];
+            const chunkParts = new Map();
+            const manifests = new Map();
+            for (const row of storedRows.values()) {
+                if (typeof row.id === 'string' && row.id.includes('#chunk#')) {
+                    const baseId = row.id.slice(0, row.id.indexOf('#chunk#'));
+                    (chunkParts.get(baseId) || chunkParts.set(baseId, []).get(baseId)).push(row);
+                    continue;
+                }
+                if (row.data?.__chunked === 1) {
+                    manifests.set(row.id, row.data);
+                    continue;
+                }
+                assembledRows.push(row);
+            }
+            for (const [id, manifest] of manifests) {
+                const parts = (chunkParts.get(id) || [])
+                    .filter(part => part.data?.__chunk === 1)
+                    .sort((a, b) => a.data.index - b.data.index);
+                if (parts.length !== manifest.chunks) {
+                    throw new Error(`Missing chunked row ${id}`);
+                }
+                assembledRows.push({ id, data: JSON.parse(parts.map(part => part.data.value).join('')) });
+            }
+            for (const { id, data } of assembledRows) {
                 const parts = id.split(':');
                 if (id === 'main') Object.assign(result, data);
-                else if (parts[0] === 'account') result.accounts.push(data);
+                else if (parts[0] === 'account' && parts.length === 2) result.accounts.push(data);
+                else if (parts[0] === 'accountMedia' && parts.length === 3) {
+                    const key = decodeURIComponent(parts[1]);
+                    const field = parts[2];
+                    const media = accountMedia.get(key) || {};
+                    media[field] = data?.value ?? null;
+                    accountMedia.set(key, media);
+                }
                 else if (parts[0] === 'accountActivity') {
                     accountActivity.set(decodeURIComponent(parts[1]), data);
                 }
@@ -108,10 +140,17 @@ function createMockSupabaseClients(initialRows = []) {
                     (result.directMessages[decodeURIComponent(parts[1])] ||= []).push(data);
                 }
             }
-            result.accounts = result.accounts.map(account => ({
-                ...account,
-                ...(accountActivity.get(account.username.toLowerCase()) || {})
-            }));
+            result.accounts = result.accounts.map(account => {
+                const key = account.username.toLowerCase();
+                return {
+                    avatar: null,
+                    banner: null,
+                    music: null,
+                    ...account,
+                    ...(accountMedia.get(key) || {}),
+                    ...(accountActivity.get(key) || {})
+                };
+            });
             return result;
         },
         getUpsertCount: () => upsertCount,
